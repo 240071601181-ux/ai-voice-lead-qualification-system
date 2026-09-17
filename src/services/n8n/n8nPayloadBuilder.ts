@@ -27,6 +27,9 @@ export interface N8nBuildInput {
   state?: ConversationState | null;
   qualification?: Qualification | null;
   crm?: N8nCrmFields | null;
+  /** Phase 7: text-conversation anchor + source marker (omitted for legacy). */
+  conversation?: { id: string; channel?: string | null; status?: string | null } | null;
+  source?: 'conversation' | 'legacy_call' | null;
 }
 
 export const buildN8nEventId = (
@@ -99,6 +102,9 @@ const buildQualificationFields = (
   const fields: N8nQualificationFields = {};
   if (qualification.id) fields.id = qualification.id;
   if (qualification.call_id) fields.call_id = qualification.call_id;
+  const conversationId = (qualification as Qualification & { conversation_id?: string | null })
+    ?.conversation_id;
+  if (conversationId) fields.conversation_id = conversationId;
   if (qualification.lead_id) fields.lead_id = qualification.lead_id;
   if (typeof qualification.score === 'number' && Number.isFinite(qualification.score)) {
     fields.score = qualification.score;
@@ -132,6 +138,16 @@ export const buildN8nEnvelope = (
   const qualification = buildQualificationFields(input.qualification);
   if (qualification) data.qualification = qualification;
   if (input.crm) data.crm = input.crm;
+  // Phase 7: source/conversation markers are set only for text-conversation
+  // events; legacy envelopes serialize byte-identically to before.
+  if (input.source) data.source = input.source;
+  if (input.conversation?.id) {
+    data.conversation = {
+      id: input.conversation.id,
+      ...(input.conversation.channel ? { channel: input.conversation.channel } : {}),
+      ...(input.conversation.status ? { status: input.conversation.status } : {}),
+    };
+  }
   return {
     event,
     event_id: buildN8nEventId(event, anchor, discriminator),

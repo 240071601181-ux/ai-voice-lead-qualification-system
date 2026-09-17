@@ -17,6 +17,8 @@ export type CrmQualificationTier = 'HOT' | 'WARM' | 'COLD';
 export interface CrmContactPayload {
   external_lead_id?: string | null;
   external_call_id?: string | null;
+  /** Phase 7: conversation anchor for text qualifications (no fake callId). */
+  external_conversation_id?: string | null;
   vapi_call_id?: string | null;
   name?: string | null;
   phone?: string | null;
@@ -67,9 +69,12 @@ export interface CrmProvider {
 export const buildCrmIdempotencyKey = (
   providerName: string,
   callId?: string | null,
-  leadId?: string | null
+  leadId?: string | null,
+  conversationId?: string | null
 ): string => {
-  const anchor = callId || leadId || 'unknown';
+  // Phase 7: conversation-scoped keys keep text syncs independent per
+  // conversation; legacy call/lead keys are byte-identical to before.
+  const anchor = conversationId ? `conv:${conversationId}` : callId || leadId || 'unknown';
   return `crm:${providerName}:${anchor}`;
 };
 

@@ -10,6 +10,7 @@ import {
 import { findConversationById } from '../repositories/conversationRepository';
 import { findConversationStateByConversationId } from '../repositories/conversationStatesRepository';
 import { getStateByCallId } from './conversationStateService';
+import { enqueueConversationQualificationFanout } from './conversationQualificationFanout';
 import { logger } from '../utils/logger';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -187,6 +188,18 @@ export const qualifyConversation = async (
     leadId,
     score: result.score,
     tier: result.tier,
+  });
+  // Phase 7: async integration fan-out (CRM/n8n/WhatsApp/follow-ups).
+  // Fire-and-forget: never in the synchronous path, never throws, and each
+  // provider is error-isolated. Calendar is intentionally excluded (booking
+  // still requires an explicit slot).
+  enqueueConversationQualificationFanout({
+    qualificationId: qualification.id,
+    conversationId,
+    leadId,
+    score: result.score,
+    tier: result.tier,
+    qualifiedAt: qualification.qualified_at,
   });
   return qualification;
 };

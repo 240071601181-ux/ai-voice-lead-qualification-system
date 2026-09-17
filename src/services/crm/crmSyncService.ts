@@ -16,8 +16,13 @@
  */
 import { LeadService } from '../leadService';
 import { findCallById } from '../../repositories/callRepository';
+import { findConversationById } from '../../repositories/conversationRepository';
+import { findConversationStateByConversationId } from '../../repositories/conversationStatesRepository';
 import { getStateByCallId } from '../conversationStateService';
-import { findQualificationByCallId } from '../../repositories/qualificationRepository';
+import {
+  findQualificationByCallId,
+  findQualificationByConversationId,
+} from '../../repositories/qualificationRepository';
 import { toCrmContactPayload } from './crmMapper';
 import { buildCrmIdempotencyKey, getCrmProvider, hashCrmPayload } from './crmProvider';
 import { withCrmRetry } from './crmRetry';
@@ -35,6 +40,8 @@ import { enqueueN8nEvent } from '../n8n/n8nEmitter';
 export interface CrmEnqueueInput {
   leadId?: string | null;
   callId?: string | null;
+  /** Phase 7: text-conversation anchor (trusted conversationId, never a fake callId). */
+  conversationId?: string | null;
 }
 
 export interface CrmSyncOutcome {
@@ -80,7 +87,8 @@ export const enqueueCrmSync = (input: CrmEnqueueInput): void => {
       logger.error('CRM sync failed', {
         error: sanitizeCrmErrorMessage(err),
         leadId: input.leadId || null,
-        callId: input.callId || null
+        callId: input.callId || null,
+        conversationId: input.conversationId || null
       });
     });
   });
@@ -93,9 +101,10 @@ export const enqueueCrmSync = (input: CrmEnqueueInput): void => {
 export const syncCrmContactOnce = async (input: CrmEnqueueInput): Promise<CrmSyncOutcome> => {
   if (!isCrmEnabled()) return { ok: false, skipped: 'disabled' };
   const callId = input.callId || null;
+  const conversationId = input.conversationId || null;
   const inputLeadId = input.leadId || null;
-  if (!callId && !inputLeadId) {
-    logger.warn('CRM sync skipped: no callId or leadId provided');
+  if (!callId && !inputLeadId && !conversationId) {
+    logger.warn('CRM sync skipped: no callId, leadId, or conversationId provided');
     return { ok: false, skipped: 'no_input' };
   }
 
@@ -107,25 +116,51 @@ export const syncCrmContactOnce = async (input: CrmEnqueueInput): Promise<CrmSyn
 
   try {
     // Reuse existing Phase 1–8 readers only; no duplicated business logic.
-    const [call, state, qualification] = await Promise.all([
+    // Conversation path reads conversation state + qualification by
+    // conversationId; the legacy path reads by callId exactly as before.
+    const [call, conversation, state, qualification] = await Promise.all([
       callId ? findCallById(callId) : Promise.resolve(null),
-      callId ? getStateByCallId(callId) : Promise.resolve(null),
-      callId ? findQualificationByCallId(callId) : Promise.resolve(null)
+      conversationId ? findConversationById(conversationId) : Promise.resolve(null),
+      conversationId
+        ? findConversationStateByConversationId(conversationId)
+        : callId
+          ? getStateByCallId(callId)
+          : Promise.resolve(null),
+      conversationId
+        ? findQualificationByConversationId(conversationId)
+        : callId
+          ? findQualificationByCallId(callId)
+          : Promise.resolve(null)
     ]);
-    const leadId = inputLeadId || state?.lead_id || call?.lead_id || qualification?.lead_id || null;
+    const leadId =
+      inputLeadId ||
+      state?.lead_id ||
+      call?.lead_id ||
+      qualification?.lead_id ||
+      conversation?.lead_id ||
+      null;
     const lead = leadId ? await leadService.getLead(leadId) : null;
 
-    if (!lead && !call && !state && !qualification) {
-      logger.warn('CRM sync skipped: no lead/call/state/qualification data found', {
+    if (!lead && !call && !state && !qualification && !conversation) {
+      logger.warn('CRM sync skipped: no lead/call/state/qualification/conversation data found', {
         leadId,
-        callId
+        callId,
+        conversationId
       });
       return { ok: false, skipped: 'no_data' };
     }
 
     const provider = getCrmProvider();
-    const payload = toCrmContactPayload({ lead, call, state, qualification });
-    const idempotencyKey = buildCrmIdempotencyKey(provider.name, callId, leadId);
+    const payload = toCrmContactPayload({
+      lead,
+      call,
+      state: state as any,
+      qualification,
+      conversation: conversationId
+        ? { id: conversationId, channel: conversation?.channel ?? null }
+        : null
+    });
+    const idempotencyKey = buildCrmIdempotencyKey(provider.name, callId, leadId, conversationId);
     const payloadHash = hashCrmPayload(payload);
 
     const previous = await findSyncByIdempotencyKey(idempotencyKey);
@@ -145,7 +180,7 @@ export const syncCrmContactOnce = async (input: CrmEnqueueInput): Promise<CrmSyn
       previous.payload_hash === payloadHash
     ) {
       await markSyncSkipped(row.id);
-      logger.info('CRM sync skipped: payload unchanged', { leadId, callId });
+      logger.info('CRM sync skipped: payload unchanged', { leadId, callId, conversationId });
       // Phase 10: terminal outcome (skip) is also worth fanning out.
       enqueueN8nEvent('crm_sync.completed', {
         leadId,
@@ -169,6 +204,7 @@ export const syncCrmContactOnce = async (input: CrmEnqueueInput): Promise<CrmSyn
     logger.info('CRM sync completed', {
       leadId,
       callId,
+      conversationId,
       crmContactId: result.crmContactId,
       created: result.created
     });
@@ -184,7 +220,7 @@ export const syncCrmContactOnce = async (input: CrmEnqueueInput): Promise<CrmSyn
     const message = sanitizeCrmErrorMessage(err);
     try {
       const providerName = safeProviderName();
-      const idempotencyKey = buildCrmIdempotencyKey(providerName, callId, inputLeadId);
+      const idempotencyKey = buildCrmIdempotencyKey(providerName, callId, inputLeadId, conversationId);
       const failedRow = await upsertSyncAttempt({
         provider: providerName,
         lead_id: inputLeadId,
@@ -202,7 +238,8 @@ export const syncCrmContactOnce = async (input: CrmEnqueueInput): Promise<CrmSyn
     logger.error('CRM sync failed', {
       error: message,
       leadId: inputLeadId,
-      callId
+      callId,
+      conversationId
     });
     // Phase 10: notify n8n of the terminal CRM failure (fire-and-forget).
     enqueueN8nEvent('crm_sync.completed', {

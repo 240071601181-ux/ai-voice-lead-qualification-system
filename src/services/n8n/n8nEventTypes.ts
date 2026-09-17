@@ -54,6 +54,8 @@ export interface N8nShipmentFields {
 export interface N8nQualificationFields {
   id?: string | null;
   call_id?: string | null;
+  /** Phase 7: conversation anchor for text qualifications (no fake callId). */
+  conversation_id?: string | null;
   lead_id?: string | null;
   score?: number | null;
   /** Verbatim Phase 8 tier passthrough. */
@@ -76,6 +78,16 @@ export interface N8nEventData {
   shipment?: N8nShipmentFields | null;
   qualification?: N8nQualificationFields | null;
   crm?: N8nCrmFields | null;
+  /** Phase 7: distinguishes text-conversation events from legacy call events. */
+  source?: 'conversation' | 'legacy_call' | null;
+  /** Phase 7: text-conversation anchor (present only for conversation events). */
+  conversation?: N8nConversationFields | null;
+}
+
+export interface N8nConversationFields {
+  id?: string | null;
+  channel?: string | null;
+  status?: string | null;
 }
 
 export interface N8nEnvelope {

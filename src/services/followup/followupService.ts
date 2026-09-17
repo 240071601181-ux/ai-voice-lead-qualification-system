@@ -25,8 +25,13 @@
  */
 import { LeadService } from '../leadService';
 import { findCallById } from '../../repositories/callRepository';
+import { findConversationById } from '../../repositories/conversationRepository';
+import { findConversationStateByConversationId } from '../../repositories/conversationStatesRepository';
 import { getStateByCallId } from '../conversationStateService';
-import { findQualificationByCallId } from '../../repositories/qualificationRepository';
+import {
+  findQualificationByCallId,
+  findQualificationByConversationId,
+} from '../../repositories/qualificationRepository';
 import { hasMeaningfulContact } from '../whatsapp/whatsappMessageBuilder';
 import { WhatsappTemplateName } from '../whatsapp/whatsappProvider';
 import { sendWhatsappOnce } from '../whatsapp/whatsappSender';
@@ -57,6 +62,8 @@ import { logger } from '../../utils/logger';
 export interface FollowupScheduleInput {
   leadId?: string | null;
   callId?: string | null;
+  /** Phase 7: text-conversation anchor (trusted conversationId, never a fake callId). */
+  conversationId?: string | null;
   action: FollowupAction;
   /** ISO datetime when the follow-up becomes due. Defaults to now (immediately due). */
   scheduledAt?: string | null;
@@ -149,6 +156,7 @@ const ALLOWED_WHATSAPP_TEMPLATES: WhatsappTemplateName[] = [
 export const enqueueFollowupScheduling = (input: {
   leadId?: string | null;
   callId?: string | null;
+  conversationId?: string | null;
 }): void => {
   if (!isFollowupEnabled()) return;
   setImmediate(() => {
@@ -156,7 +164,8 @@ export const enqueueFollowupScheduling = (input: {
       logger.error('Follow-up scheduling failed', {
         error: sanitizeFollowupErrorMessage(err),
         leadId: input.leadId || null,
-        callId: input.callId || null
+        callId: input.callId || null,
+        conversationId: input.conversationId || null
       });
     });
   });
@@ -197,18 +206,28 @@ export const listFollowups = async (opts: FollowupListOptions): Promise<Followup
 export const scheduleFollowupsForEvent = async (input: {
   leadId?: string | null;
   callId?: string | null;
+  conversationId?: string | null;
   now?: Date;
 }): Promise<FollowupScheduleOutcome[]> => {
   if (!isFollowupEnabled()) return [{ ok: false, skipped: 'disabled' }];
   const callId = input.callId || null;
+  const conversationId = input.conversationId || null;
   const inputLeadId = input.leadId || null;
-  if (!callId && !inputLeadId) return [{ ok: false, skipped: 'no_input' }];
+  if (!callId && !inputLeadId && !conversationId) return [{ ok: false, skipped: 'no_input' }];
 
   try {
     const [call, state, qualification] = await Promise.all([
       callId ? findCallById(callId) : Promise.resolve(null),
-      callId ? getStateByCallId(callId) : Promise.resolve(null),
-      callId ? findQualificationByCallId(callId) : Promise.resolve(null)
+      conversationId
+        ? findConversationStateByConversationId(conversationId)
+        : callId
+          ? getStateByCallId(callId)
+          : Promise.resolve(null),
+      conversationId
+        ? findQualificationByConversationId(conversationId)
+        : callId
+          ? findQualificationByCallId(callId)
+          : Promise.resolve(null)
     ]);
     const leadId = inputLeadId || state?.lead_id || call?.lead_id || qualification?.lead_id || null;
     const lead = leadId ? await leadService.getLead(leadId).catch(() => null) : null;
@@ -220,7 +239,7 @@ export const scheduleFollowupsForEvent = async (input: {
     const now = input.now || new Date();
     const tier = qualification?.tier || null;
     const plan = resolveFollowupPlan(
-      { tier, hasMeaningfulContact: hasMeaningfulContact(state) },
+      { tier, hasMeaningfulContact: hasMeaningfulContact(state as any) },
       { hotDelayMin: cfg.hotDelayMin, warmDelayMin: cfg.warmDelayMin, crmDelayMin: cfg.crmDelayMin }
     );
     if (plan.length === 0) {
@@ -233,6 +252,7 @@ export const scheduleFollowupsForEvent = async (input: {
         await scheduleFollowup({
           leadId,
           callId,
+          conversationId,
           action: item.action,
           scheduledAt: scheduledAtFor(now, item.delayMin),
           template: item.template || null
@@ -244,7 +264,8 @@ export const scheduleFollowupsForEvent = async (input: {
     logger.error('Follow-up scheduling failed', {
       error: sanitizeFollowupErrorMessage(err),
       leadId: inputLeadId,
-      callId
+      callId,
+      conversationId
     });
     return [{ ok: false }];
   }
@@ -260,8 +281,9 @@ export const scheduleFollowup = async (
 ): Promise<FollowupScheduleOutcome> => {
   if (!isFollowupEnabled()) return { ok: false, skipped: 'disabled' };
   const callId = input.callId || null;
+  const conversationId = input.conversationId || null;
   const inputLeadId = input.leadId || null;
-  if (!callId && !inputLeadId) return { ok: false, skipped: 'no_input' };
+  if (!callId && !inputLeadId && !conversationId) return { ok: false, skipped: 'no_input' };
   if (input.action !== 'whatsapp_followup' && input.action !== 'crm_followup' && input.action !== 'missed_reminder') {
     return { ok: false, skipped: 'invalid_action' };
   }
@@ -274,8 +296,16 @@ export const scheduleFollowup = async (
   try {
     const [call, state, qualification] = await Promise.all([
       callId ? findCallById(callId) : Promise.resolve(null),
-      callId ? getStateByCallId(callId) : Promise.resolve(null),
-      callId ? findQualificationByCallId(callId) : Promise.resolve(null)
+      conversationId
+        ? findConversationStateByConversationId(conversationId)
+        : callId
+          ? getStateByCallId(callId)
+          : Promise.resolve(null),
+      conversationId
+        ? findQualificationByConversationId(conversationId)
+        : callId
+          ? findQualificationByCallId(callId)
+          : Promise.resolve(null)
     ]);
     const leadId = inputLeadId || state?.lead_id || call?.lead_id || qualification?.lead_id || null;
     if (!call && !state && !qualification && !leadId) {
@@ -286,7 +316,10 @@ export const scheduleFollowup = async (
       return { ok: false, skipped: 'tier' };
     }
 
-    const anchor = call?.id || state?.call_id || qualification?.call_id || (leadId as string);
+    // Conversation-anchored keys keep text follow-ups independent per
+    // conversation; legacy call/lead anchors are byte-identical to before.
+    const anchor =
+      conversationId || call?.id || (state as any)?.call_id || qualification?.call_id || (leadId as string);
     const baseKey = buildFollowupKey(input.action, anchor);
     const previous = await findFollowupByKey(baseKey);
     if (previous && (previous.status === 'completed' || previous.status === 'cancelled')) {
@@ -297,22 +330,31 @@ export const scheduleFollowup = async (
       discriminator > 1 ? buildFollowupKey(input.action, anchor, discriminator) : baseKey;
 
     const scheduledAt = input.scheduledAt || new Date().toISOString();
+    // The conversation anchor travels in the payload so execution-time
+    // dispatch can resolve conversation state/qualification (lead-only
+    // fallback for legacy rows, which carry no conversationId).
     const row = await upsertFollowupAttempt({
       followup_key: followupKey,
       lead_id: leadId,
       call_id: callId,
       qualification_id: qualification?.id || null,
       action: input.action,
-      payload: input.action === 'whatsapp_followup' && input.template ? { template: input.template } : {},
+      payload:
+        input.action === 'whatsapp_followup' && input.template
+          ? { template: input.template, ...(conversationId ? { conversationId } : {}) }
+          : conversationId
+            ? { conversationId }
+            : {},
       scheduled_at: scheduledAt
     });
-    logger.info('Follow-up scheduled', { action: input.action, leadId, callId });
+    logger.info('Follow-up scheduled', { action: input.action, leadId, callId, conversationId });
     return { ok: true, created: true, followup: row };
   } catch (err: any) {
     logger.error('Follow-up scheduling failed', {
       error: sanitizeFollowupErrorMessage(err),
       leadId: inputLeadId,
-      callId
+      callId,
+      conversationId
     });
     return { ok: false };
   }
@@ -388,15 +430,20 @@ const dispatchFollowupAction = async (
 ): Promise<{ ok: boolean; error?: string }> => {
   const leadId = row.lead_id;
   const callId = row.call_id;
+  // Conversation anchor persisted at schedule time (absent for legacy rows).
+  const payload = (row.payload || {}) as { template?: unknown; conversationId?: unknown };
+  const conversationId =
+    typeof payload.conversationId === 'string' && payload.conversationId.length > 0
+      ? payload.conversationId
+      : null;
 
   if (row.action === 'crm_followup') {
-    const outcome = await syncCrmContactOnce({ leadId, callId });
+    const outcome = await syncCrmContactOnce({ leadId, callId, conversationId });
     if (outcome.ok) return { ok: true };
     return { ok: false, error: `CRM follow-up not completed (${outcome.skipped || 'provider_error'})` };
   }
 
   if (row.action === 'whatsapp_followup') {
-    const payload = (row.payload || {}) as { template?: unknown };
     const template = typeof payload.template === 'string' ? payload.template : null;
     if (!template || !ALLOWED_WHATSAPP_TEMPLATES.includes(template as WhatsappTemplateName)) {
       return { ok: false, error: 'WhatsApp follow-up has no valid template' };
@@ -404,7 +451,8 @@ const dispatchFollowupAction = async (
     const outcome = await sendWhatsappOnce({
       template: template as WhatsappTemplateName,
       leadId,
-      callId
+      callId,
+      conversationId
     });
     if (outcome.ok) return { ok: true };
     // Benign skips complete the follow-up: retrying consent/phone/template

@@ -21,6 +21,8 @@ export interface CrmMappingInput {
   call?: Call | null;
   state?: ConversationState | null;
   qualification?: Qualification | null;
+  /** Phase 7: explicit text-conversation anchor (no fake callId). */
+  conversation?: { id: string; channel?: string | null } | null;
 }
 
 const text = (value: unknown): string | undefined => {
@@ -63,6 +65,11 @@ export const toCrmContactPayload = (input: CrmMappingInput): CrmContactPayload =
   if (externalLeadId) payload.external_lead_id = externalLeadId;
   const externalCallId = call?.id || state?.call_id || qualification?.call_id || null;
   if (externalCallId) payload.external_call_id = externalCallId;
+  // Phase 7: conversation anchor prefers the explicit context, then the
+  // qualification row lineage. Never fabricated from a call.
+  const externalConversationId =
+    input.conversation?.id || (qualification as Qualification & { conversation_id?: string | null })?.conversation_id || null;
+  if (externalConversationId) payload.external_conversation_id = externalConversationId;
   if (call?.vapi_call_id) payload.vapi_call_id = call.vapi_call_id;
 
   const name = text(lead?.name) || text(state?.customer_name);

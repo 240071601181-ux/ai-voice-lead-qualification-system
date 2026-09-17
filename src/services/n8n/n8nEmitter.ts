@@ -19,8 +19,13 @@
 import { createHash } from 'crypto';
 import { LeadService } from '../leadService';
 import { findCallById } from '../../repositories/callRepository';
+import { findConversationById } from '../../repositories/conversationRepository';
+import { findConversationStateByConversationId } from '../../repositories/conversationStatesRepository';
 import { getStateByCallId } from '../conversationStateService';
-import { findQualificationByCallId } from '../../repositories/qualificationRepository';
+import {
+  findQualificationByCallId,
+  findQualificationByConversationId,
+} from '../../repositories/qualificationRepository';
 import {
   buildN8nEnvelope,
   buildN8nEventId,
@@ -42,6 +47,8 @@ import { logger } from '../../utils/logger';
 export interface N8nEnqueueInput {
   leadId?: string | null;
   callId?: string | null;
+  /** Phase 7: text-conversation anchor (trusted conversationId, never a fake callId). */
+  conversationId?: string | null;
   crm?: N8nCrmFields | null;
 }
 
@@ -93,7 +100,8 @@ export const enqueueN8nEvent = (event: N8nEventName, input: N8nEnqueueInput): vo
         error: sanitizeN8nErrorMessage(err),
         event,
         leadId: input.leadId || null,
-        callId: input.callId || null
+        callId: input.callId || null,
+        conversationId: input.conversationId || null
       });
     });
   });
@@ -109,9 +117,10 @@ export const emitN8nEventOnce = async (
 ): Promise<N8nEmitOutcome> => {
   if (!isN8nEnabled()) return { ok: false, skipped: 'disabled' };
   const callId = input.callId || null;
+  const conversationId = input.conversationId || null;
   const inputLeadId = input.leadId || null;
-  if (!callId && !inputLeadId) {
-    logger.warn('n8n event skipped: no callId or leadId provided', { event });
+  if (!callId && !inputLeadId && !conversationId) {
+    logger.warn('n8n event skipped: no callId, leadId, or conversationId provided', { event });
     return { ok: false, skipped: 'no_input' };
   }
 
@@ -127,24 +136,61 @@ export const emitN8nEventOnce = async (
 
   try {
     // Reuse existing Phase 1–9 readers only; no duplicated business logic.
-    const [call, state, qualification] = await Promise.all([
+    // Conversation path reads conversation + state + qualification by
+    // conversationId; the legacy path reads by callId exactly as before.
+    const [call, conversation, state, qualification] = await Promise.all([
       callId ? findCallById(callId) : Promise.resolve(null),
-      callId ? getStateByCallId(callId) : Promise.resolve(null),
-      callId ? findQualificationByCallId(callId) : Promise.resolve(null)
+      conversationId ? findConversationById(conversationId) : Promise.resolve(null),
+      conversationId
+        ? findConversationStateByConversationId(conversationId)
+        : callId
+          ? getStateByCallId(callId)
+          : Promise.resolve(null),
+      conversationId
+        ? findQualificationByConversationId(conversationId)
+        : callId
+          ? findQualificationByCallId(callId)
+          : Promise.resolve(null)
     ]);
-    const leadId = inputLeadId || state?.lead_id || call?.lead_id || qualification?.lead_id || null;
+    const leadId =
+      inputLeadId ||
+      state?.lead_id ||
+      call?.lead_id ||
+      qualification?.lead_id ||
+      conversation?.lead_id ||
+      null;
     const lead = leadId ? await leadService.getLead(leadId) : null;
 
-    if (!lead && !call && !state && !qualification) {
-      logger.warn('n8n event skipped: no lead/call/state/qualification data found', {
+    if (!lead && !call && !state && !qualification && !conversation) {
+      logger.warn('n8n event skipped: no lead/call/state/qualification/conversation data found', {
         event,
         leadId,
-        callId
+        callId,
+        conversationId
       });
       return { ok: false, skipped: 'no_data' };
     }
 
-    const anchor = callId || leadId as string;
+    // Conversation-anchored event ids keep text events independent from
+    // legacy call events; the `source` marker makes the origin explicit.
+    const anchor = conversationId || callId || (leadId as string);
+    const source = conversationId ? ('conversation' as const) : undefined;
+    const conversationFields = conversationId
+      ? {
+          id: conversationId,
+          channel: conversation?.channel ?? null,
+          status: conversation?.status ?? null,
+        }
+      : null;
+    const buildInput = {
+      lead,
+      call,
+      state: state as any,
+      qualification,
+      crm: input.crm || null,
+      conversation: conversationFields,
+      source,
+    };
     const occurredAt = new Date().toISOString();
     const client = getN8nClient();
     let delivered = 0;
@@ -153,12 +199,7 @@ export const emitN8nEventOnce = async (
     for (const target of targets) {
       // Occurrence 1: stable event_id; skip without HTTP when unchanged.
       const baseEventId = buildN8nEventId(event, anchor);
-      const baseEnvelope = buildN8nEnvelope(
-        event,
-        anchor,
-        { lead, call, state, qualification, crm: input.crm || null },
-        occurredAt
-      );
+      const baseEnvelope = buildN8nEnvelope(event, anchor, buildInput, occurredAt);
       const baseHash = hashEnvelope(canonicalN8nBody(baseEnvelope));
       const previous = await findDeliveryByEventId(baseEventId, target.name);
 
@@ -189,13 +230,7 @@ export const emitN8nEventOnce = async (
         // Data changed since a terminal delivery: deterministic new occurrence.
         discriminator = (previous.discriminator || 1) + 1;
         eventId = buildN8nEventId(event, anchor, discriminator);
-        const envelope = buildN8nEnvelope(
-          event,
-          anchor,
-          { lead, call, state, qualification, crm: input.crm || null },
-          occurredAt,
-          discriminator
-        );
+        const envelope = buildN8nEnvelope(event, anchor, buildInput, occurredAt, discriminator);
         payloadHash = hashEnvelope(canonicalN8nBody(envelope));
       }
 
@@ -214,7 +249,7 @@ export const emitN8nEventOnce = async (
         const envelope = buildN8nEnvelope(
           event,
           anchor,
-          { lead, call, state, qualification, crm: input.crm || null },
+          buildInput,
           occurredAt,
           discriminator > 1 ? discriminator : undefined
         );
@@ -237,19 +272,21 @@ export const emitN8nEventOnce = async (
           event,
           workflow: target.name,
           leadId,
-          callId
+          callId,
+          conversationId
         });
       }
     }
 
-    logger.info('n8n event emission completed', { event, leadId, callId, delivered });
+    logger.info('n8n event emission completed', { event, leadId, callId, conversationId, delivered });
     return { ok: delivered > 0 || skippedNoChanges > 0, delivered };
   } catch (err: any) {
     logger.error('n8n event emission failed', {
       error: sanitizeN8nErrorMessage(err),
       event,
       leadId: inputLeadId,
-      callId
+      callId,
+      conversationId
     });
     return { ok: false };
   }

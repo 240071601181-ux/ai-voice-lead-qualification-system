@@ -22,8 +22,13 @@
 import { Lead } from '../../models/lead';
 import { LeadService } from '../leadService';
 import { findCallById } from '../../repositories/callRepository';
+import { findConversationById } from '../../repositories/conversationRepository';
+import { findConversationStateByConversationId } from '../../repositories/conversationStatesRepository';
 import { getStateByCallId } from '../conversationStateService';
-import { findQualificationByCallId } from '../../repositories/qualificationRepository';
+import {
+  findQualificationByCallId,
+  findQualificationByConversationId,
+} from '../../repositories/qualificationRepository';
 import {
   buildWhatsappMessageKey,
   getWhatsappProvider,
@@ -51,6 +56,8 @@ export interface WhatsappEnqueueInput {
   template: WhatsappTemplateName;
   leadId?: string | null;
   callId?: string | null;
+  /** Phase 7: text-conversation anchor (trusted conversationId, never a fake callId). */
+  conversationId?: string | null;
 }
 
 export interface WhatsappSendOutcome {
@@ -124,7 +131,8 @@ export const enqueueWhatsappMessage = (input: WhatsappEnqueueInput): void => {
         error: sanitizeWhatsappErrorMessage(err),
         template: input.template,
         leadId: input.leadId || null,
-        callId: input.callId || null
+        callId: input.callId || null,
+        conversationId: input.conversationId || null
       });
     });
   });
@@ -138,9 +146,12 @@ export const sendWhatsappOnce = async (
 ): Promise<WhatsappSendOutcome> => {
   if (!isWhatsappEnabled()) return { ok: false, skipped: 'disabled' };
   const callId = input.callId || null;
+  const conversationId = input.conversationId || null;
   const inputLeadId = input.leadId || null;
-  if (!callId && !inputLeadId) {
-    logger.warn('WhatsApp send skipped: no callId or leadId provided', { template: input.template });
+  if (!callId && !inputLeadId && !conversationId) {
+    logger.warn('WhatsApp send skipped: no callId, leadId, or conversationId provided', {
+      template: input.template
+    });
     return { ok: false, skipped: 'no_input' };
   }
 
@@ -154,25 +165,37 @@ export const sendWhatsappOnce = async (
 
   try {
     // Reuse existing Phase 1–10 readers only; no duplicated business logic.
+    // Conversation path reads conversation state + qualification by
+    // conversationId; the legacy path reads by callId exactly as before.
     const [call, state, qualification] = await Promise.all([
       callId ? findCallById(callId) : Promise.resolve(null),
-      callId ? getStateByCallId(callId) : Promise.resolve(null),
-      callId ? findQualificationByCallId(callId) : Promise.resolve(null)
+      conversationId
+        ? findConversationStateByConversationId(conversationId)
+        : callId
+          ? getStateByCallId(callId)
+          : Promise.resolve(null),
+      conversationId
+        ? findQualificationByConversationId(conversationId)
+        : callId
+          ? findQualificationByCallId(callId)
+          : Promise.resolve(null)
     ]);
-    const leadId = inputLeadId || state?.lead_id || call?.lead_id || qualification?.lead_id || null;
+    const leadId =
+      inputLeadId || state?.lead_id || call?.lead_id || qualification?.lead_id || null;
     const lead = leadId ? await leadService.getLead(leadId) : null;
 
     if (!lead && !call && !state && !qualification) {
       logger.warn('WhatsApp send skipped: no lead/call/state/qualification data found', {
         template: input.template,
         leadId,
-        callId
+        callId,
+        conversationId
       });
       return { ok: false, skipped: 'no_data' };
     }
 
     // Template-specific suppression from existing data only (no new detection logic).
-    if (input.template === 'call_missed' && hasMeaningfulContact(state)) {
+    if (input.template === 'call_missed' && hasMeaningfulContact(state as any)) {
       return { ok: false, skipped: 'suppressed' };
     }
     if (
@@ -187,7 +210,7 @@ export const sendWhatsappOnce = async (
     // Deny-by-default consent gate (no consent source exists yet).
     if (cfg.requireConsent && resolveWhatsappConsent(lead) !== 'opted_in') {
       const providerName = safeProviderName();
-      const anchor = callId || leadId as string;
+      const anchor = conversationId || callId || (leadId as string);
       const row = await upsertDeliveryAttempt({
         template: input.template,
         message_key: buildWhatsappMessageKey(providerName, input.template, anchor),
@@ -202,7 +225,8 @@ export const sendWhatsappOnce = async (
       logger.info('WhatsApp send skipped: explicit consent unavailable', {
         template: input.template,
         leadId,
-        callId
+        callId,
+        conversationId
       });
       return { ok: false, skipped: 'no_consent' };
     }
@@ -219,14 +243,14 @@ export const sendWhatsappOnce = async (
 
     const payload = buildWhatsappPayload({
       lead,
-      state,
+      state: state as any,
       template: input.template,
       contentSid,
       globalDefaultLanguage: cfg.defaultLanguage
     });
     if (!payload) {
       const providerName = provider.name;
-      const anchor = callId || leadId as string;
+      const anchor = conversationId || callId || (leadId as string);
       const row = await upsertDeliveryAttempt({
         template: input.template,
         message_key: buildWhatsappMessageKey(providerName, input.template, anchor),
@@ -241,7 +265,8 @@ export const sendWhatsappOnce = async (
       return { ok: false, skipped: 'no_phone' };
     }
 
-    const anchor = call?.id || state?.call_id || qualification?.call_id || leadId as string;
+    const anchor =
+      conversationId || call?.id || (state as any)?.call_id || qualification?.call_id || (leadId as string);
     const messageKey = buildWhatsappMessageKey(provider.name, input.template, anchor);
     const payloadHash = hashWhatsappPayload(payload);
 
@@ -266,7 +291,8 @@ export const sendWhatsappOnce = async (
       logger.info('WhatsApp send skipped: payload unchanged', {
         template: input.template,
         leadId,
-        callId
+        callId,
+        conversationId
       });
       return { ok: true, skipped: 'no_changes' };
     }
@@ -280,14 +306,15 @@ export const sendWhatsappOnce = async (
     logger.info('WhatsApp send completed', {
       template: input.template,
       leadId,
-      callId
+      callId,
+      conversationId
     });
     return { ok: true };
   } catch (err: any) {
     const message = sanitizeWhatsappErrorMessage(err);
     try {
       const providerName = safeProviderName();
-      const anchor = callId || inputLeadId || 'unknown';
+      const anchor = conversationId || callId || inputLeadId || 'unknown';
       const failedRow = await upsertDeliveryAttempt({
         template: input.template,
         message_key: buildWhatsappMessageKey(providerName, input.template, anchor),
@@ -308,7 +335,8 @@ export const sendWhatsappOnce = async (
       error: message,
       template: input.template,
       leadId: inputLeadId,
-      callId
+      callId,
+      conversationId
     });
     return { ok: false };
   }
