@@ -4,9 +4,18 @@ import {
   SearchKnowledgePayload,
   SearchKnowledgeResult
 } from '../models/Knowledge';
-import { createDocument, createChunks, searchSimilarChunks } from '../repositories/knowledgeRepository';
+import {
+  countChunks,
+  countDocuments,
+  createDocument,
+  createChunks,
+  findDocumentWithChunks,
+  listDocuments,
+  searchSimilarChunks
+} from '../repositories/knowledgeRepository';
 import { chunkText } from './chunkingService';
 import { getEmbeddingProvider } from '../agent/embeddings';
+import { pool } from '../database';
 import { logger } from '../utils/logger';
 
 export const ingestDocument = async (payload: IngestDocumentPayload): Promise<IngestDocumentResult> => {
@@ -99,5 +108,157 @@ export const searchKnowledge = async (payload: SearchKnowledgePayload): Promise<
     query: queryText,
     totalResults: results.length,
     results
+  };
+};
+
+export interface ListKnowledgeDocumentsResult {
+  documents: Array<{
+    id: string;
+    title: string;
+    source: string | null;
+    chunkCount: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export const DEFAULT_DOCUMENTS_LIMIT = 20;
+export const MAX_DOCUMENTS_LIMIT = 100;
+
+/**
+ * Paginated document inventory. Real rows from the knowledge store —
+ * the Knowledge Base page renders these verbatim (never demo documents).
+ */
+export const listKnowledgeDocuments = async (args: {
+  page?: unknown;
+  limit?: unknown;
+}): Promise<ListKnowledgeDocumentsResult> => {
+  const page = args.page === undefined ? 1 : Number(args.page);
+  const limit = args.limit === undefined ? DEFAULT_DOCUMENTS_LIMIT : Number(args.limit);
+  if (!Number.isInteger(page) || page < 1) {
+    throw new Error('page must be a positive integer');
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_DOCUMENTS_LIMIT) {
+    throw new Error(`limit must be an integer between 1 and ${MAX_DOCUMENTS_LIMIT}`);
+  }
+  const [documents, total] = await Promise.all([
+    listDocuments({ limit, offset: (page - 1) * limit }),
+    countDocuments()
+  ]);
+  return { documents, total, page, limit };
+};
+
+const notFoundError = (message: string): any => {
+  const err: any = new Error(message);
+  err.status = 404;
+  return err;
+};
+
+/**
+ * A document plus its stored chunks. Throws 404 when missing — the detail
+ * dialog surfaces the real backend message.
+ */
+export const getKnowledgeDocument = async (id: unknown) => {
+  if (typeof id !== 'string' || id.trim().length === 0) {
+    throw new Error('Document id is required');
+  }
+  const found = await findDocumentWithChunks(id.trim());
+  if (!found) {
+    throw notFoundError('Knowledge document not found');
+  }
+  return found;
+};
+
+export interface KnowledgeDiagnosticCheck {
+  name: string;
+  status: 'ok' | 'failed' | 'skipped';
+  message: string;
+}
+
+export interface KnowledgeDiagnostics {
+  status: 'ok' | 'not_configured' | 'error';
+  checks: KnowledgeDiagnosticCheck[];
+  documentCount: number;
+  chunkCount: number;
+  embeddingProvider: string;
+  embeddingDimension: number;
+}
+
+/**
+ * Real knowledge-store diagnostics: database reachability, table presence,
+ * embedding provider identity (name + dimension only — never secrets), and
+ * live document/chunk counts. Powers GET /api/v1/knowledge/diagnostics and
+ * the Knowledge Base "Run diagnostics" action.
+ */
+export const getKnowledgeDiagnostics = async (): Promise<KnowledgeDiagnostics> => {
+  const checks: KnowledgeDiagnosticCheck[] = [];
+  let fatal = false;
+
+  try {
+    await pool.query('SELECT 1');
+    checks.push({ name: 'database', status: 'ok', message: 'Database reachable' });
+  } catch (err: any) {
+    checks.push({ name: 'database', status: 'failed', message: 'Database unreachable' });
+    fatal = true;
+  }
+
+  if (!fatal) {
+    try {
+      await pool.query('SELECT 1 FROM knowledge_documents LIMIT 0');
+      await pool.query('SELECT 1 FROM knowledge_chunks LIMIT 0');
+      checks.push({ name: 'tables', status: 'ok', message: 'knowledge_documents + knowledge_chunks present' });
+    } catch (err: any) {
+      checks.push({ name: 'tables', status: 'failed', message: 'Knowledge tables missing (run migrations)' });
+      fatal = true;
+    }
+  } else {
+    checks.push({ name: 'tables', status: 'skipped', message: 'Skipped (database unreachable)' });
+  }
+
+  let providerName = 'unknown';
+  let dimension = 0;
+  try {
+    const provider = getEmbeddingProvider();
+    providerName = provider.constructor?.name || 'unknown';
+    dimension = provider.getDimension();
+    checks.push({
+      name: 'embeddings',
+      status: 'ok',
+      message: `Provider ${providerName} · dimension ${dimension}`
+    });
+  } catch (err: any) {
+    checks.push({ name: 'embeddings', status: 'failed', message: 'Embedding provider unavailable' });
+    fatal = true;
+  }
+
+  let documentCount = 0;
+  let chunkCount = 0;
+  if (!fatal) {
+    try {
+      documentCount = await countDocuments();
+      chunkCount = await countChunks();
+      checks.push({
+        name: 'inventory',
+        status: 'ok',
+        message: `${documentCount} document(s) · ${chunkCount} chunk(s) stored`
+      });
+    } catch (err: any) {
+      checks.push({ name: 'inventory', status: 'failed', message: 'Could not count stored documents' });
+      fatal = true;
+    }
+  } else {
+    checks.push({ name: 'inventory', status: 'skipped', message: 'Skipped (store unreachable)' });
+  }
+
+  return {
+    status: fatal ? 'error' : 'ok',
+    checks,
+    documentCount,
+    chunkCount,
+    embeddingProvider: providerName,
+    embeddingDimension: dimension
   };
 };

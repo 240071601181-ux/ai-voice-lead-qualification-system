@@ -44,13 +44,14 @@ function toError(error: unknown): ApiError | Error {
 }
 
 /** Paginated backend leads list. Previous page stays visible while refetching. */
-export function useLeadsQuery(params: ListLeadsInput) {
+export function useLeadsQuery(params: ListLeadsInput, opts?: { enabled?: boolean }) {
   return useQuery<LeadListResult>({
     queryKey: leadKeys.list(params),
     queryFn: () => listLeads(params),
     retry: shouldRetry,
     staleTime: 15_000,
     placeholderData: (previousData) => previousData,
+    enabled: opts?.enabled ?? true,
   });
 }
 

@@ -12,7 +12,7 @@
 export { frontendEnv, isMockDataEnabled } from "./env";
 export { httpClient, request } from "./httpClient";
 export type { HttpMethod, RequestOptions } from "./httpClient";
-export { ApiError, errorKindForStatus, getUserMessage } from "./errors";
+export { ApiError, errorKindForStatus, getCalendarBookingErrorMessage, getStartCallErrorMessage, getUserMessage, CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE, TELEPHONY_NOT_CONFIGURED_MESSAGE } from "./errors";
 export type { ApiErrorKind } from "./errors";
 export { queryClient } from "./queryClient";
 export { errorState, fromQuery, idleState, loadingState, successState } from "./asyncState";

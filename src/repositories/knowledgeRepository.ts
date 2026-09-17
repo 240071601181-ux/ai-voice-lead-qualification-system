@@ -55,6 +55,74 @@ export const findDocumentById = async (id: string): Promise<KnowledgeDocument | 
   return res.rows[0] || null;
 };
 
+export interface DocumentListItem {
+  id: string;
+  title: string;
+  source: string | null;
+  chunkCount: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Total number of ingested documents. */
+export const countDocuments = async (): Promise<number> => {
+  const res = await pool.query('SELECT COUNT(*)::int AS count FROM knowledge_documents');
+  return res.rows[0]?.count ?? 0;
+};
+
+/** Total number of vectorized chunks across all documents. */
+export const countChunks = async (): Promise<number> => {
+  const res = await pool.query('SELECT COUNT(*)::int AS count FROM knowledge_chunks');
+  return res.rows[0]?.count ?? 0;
+};
+
+/**
+ * Paginated document inventory (newest first) with per-document chunk
+ * counts. Powers GET /api/v1/knowledge/documents — the Knowledge Base
+ * page inventory renders these rows verbatim (no demo documents).
+ */
+export const listDocuments = async (args: { limit: number; offset: number }): Promise<DocumentListItem[]> => {
+  const res = await pool.query(
+    `SELECT d.id, d.title, d.source,
+            COUNT(c.id)::int AS "chunkCount",
+            d.created_at, d.updated_at
+       FROM knowledge_documents d
+       LEFT JOIN knowledge_chunks c ON c.document_id = d.id
+      GROUP BY d.id
+      ORDER BY d.created_at DESC
+      LIMIT $1 OFFSET $2`,
+    [args.limit, args.offset]
+  );
+  return res.rows.map((row: any) => ({
+    id: row.id,
+    title: row.title,
+    source: row.source ?? null,
+    chunkCount: Number(row.chunkCount ?? row.chunkcount ?? 0),
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  }));
+};
+
+/**
+ * A document plus its chunks (index order). Powers
+ * GET /api/v1/knowledge/documents/:id — the detail dialog renders the
+ * actual stored chunks. Null when the document does not exist.
+ */
+export const findDocumentWithChunks = async (
+  id: string
+): Promise<{ document: KnowledgeDocument; chunks: KnowledgeChunk[] } | null> => {
+  const document = await findDocumentById(id);
+  if (!document) return null;
+  const res = await pool.query(
+    `SELECT id, document_id, chunk_index, chunk_text, metadata, created_at, updated_at
+       FROM knowledge_chunks
+      WHERE document_id = $1
+      ORDER BY chunk_index ASC`,
+    [id]
+  );
+  return { document, chunks: res.rows };
+};
+
 /**
  * Cosine similarity helper function for vector arrays (used in vector search fallback / unit test compatibility).
  */

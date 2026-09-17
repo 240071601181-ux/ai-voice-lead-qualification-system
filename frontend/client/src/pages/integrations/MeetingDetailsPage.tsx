@@ -7,13 +7,11 @@ import { useToast } from "@/layouts/AppLayout";
 import { findBooking, findLead } from "@/mock/details";
 import type { MockBooking } from "@/mock/details";
 import { useBookingQuery } from "@/api/hooks/useCalendar";
+import { formatMinuteLocal } from "@/api/calendarDateTime";
 import { ApiError, getUserMessage } from "@/api/errors";
 
 function formatDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  const time = new Date(iso).getTime();
-  if (Number.isNaN(time)) return iso;
-  return new Date(iso).toLocaleString();
+  return formatMinuteLocal(iso);
 }
 
 /** Demo-only meeting details from mock booking fixtures. */

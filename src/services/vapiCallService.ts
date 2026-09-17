@@ -38,6 +38,14 @@ export interface StartOutboundCallResult {
   vapiStatus: string;
 }
 
+/**
+ * User-facing signal for unavailable outbound telephony: no usable
+ * assistant/phone-number (or provider rejects our credentials/numbers).
+ * Never faked as success — always surfaces as a 503 failure.
+ */
+export const TELEPHONY_NOT_CONFIGURED_MESSAGE =
+  'Voice calling is not configured. Add a supported Vapi/Twilio phone number to place outbound calls.';
+
 /** Replaceable Vapi HTTP boundary (mocked in tests; axios in production). */
 export interface VapiCallHttpClient {
   createCall(args: {
@@ -86,6 +94,9 @@ export const normalizePhoneToE164 = (raw: unknown): string | null => {
 const httpError = (status: number, message: string): any => {
   const err: any = new Error(message);
   err.status = status;
+  // Explicit marker: HTTP-client libraries (axios v1 exposes .status too)
+  // must never be mistaken for these intentional, sanitized errors.
+  err.isStartCallHttpError = true;
   return err;
 };
 
@@ -114,10 +125,7 @@ export const startOutboundCall = async (input: StartOutboundCallInput): Promise<
 
   const cfg = getVapiConfig();
   if (!cfg.apiKey || !cfg.assistantId || !cfg.phoneNumberId) {
-    throw httpError(
-      503,
-      'Voice calling is not configured (VAPI_ASSISTANT_ID / VAPI_PHONE_NUMBER_ID missing)'
-    );
+    throw httpError(503, TELEPHONY_NOT_CONFIGURED_MESSAGE);
   }
 
   let vapiCallId: string | undefined;
@@ -144,12 +152,24 @@ export const startOutboundCall = async (input: StartOutboundCallInput): Promise<
       throw new Error('Vapi call creation returned no call id');
     }
   } catch (err: any) {
-    // Preserve intentional HTTP errors; sanitize provider failures.
-    if (typeof err?.status === 'number') throw err;
+    // Preserve intentional HTTP errors; sanitize provider failures (never
+    // leak provider messages/statuses — HTTP clients expose .status too).
+    if (err?.isStartCallHttpError) throw err;
+    const vapiStatusCode = err?.response?.status;
     logger.error('Vapi outbound call creation failed', {
       leadId: lead.id,
-      vapiStatusCode: err?.response?.status
+      vapiStatusCode
     });
+    // The provider rejected our request (bad key, unknown/unprovisioned
+    // assistant or phone-number IDs): no usable outbound telephony, same
+    // truthful signal as missing configuration. Anything else (5xx,
+    // network) is a provider-side failure.
+    if (
+      typeof vapiStatusCode === 'number' &&
+      [400, 401, 403].includes(vapiStatusCode)
+    ) {
+      throw httpError(503, TELEPHONY_NOT_CONFIGURED_MESSAGE);
+    }
     throw httpError(502, 'Voice provider rejected the call request');
   }
 

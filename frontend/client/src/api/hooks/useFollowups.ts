@@ -5,15 +5,14 @@
  * Phase 14C-3 API services (never fetch/axios).
  *
  * Backend coverage (existing Express endpoints only):
+ *   GET  /api/v1/followups          -> useFollowupsQuery (filter/page/limit)
  *   GET  /api/v1/followups/:id          -> useFollowupQuery
  *   POST /api/v1/followups/schedule     -> useScheduleFollowupMutation
  *   POST /api/v1/followups/:id/execute  -> useExecuteFollowupMutation
  *   POST /api/v1/followups/:id/cancel   -> useCancelFollowupMutation
  *   POST /api/v1/followups/:id/retry    -> useRetryFollowupMutation
  *
- * There is NO GET-all endpoint, so there is deliberately no list query here.
- * The /followups list keeps using mock data until a backend list endpoint
- * exists. POST /api/v1/followups/execute-due is INTERNAL/admin only and is
+ * POST /api/v1/followups/execute-due is INTERNAL/admin only and is
  * deliberately NOT exposed through any hook here.
  */
 
@@ -23,13 +22,16 @@ import {
   cancelFollowup,
   executeFollowup,
   getFollowup,
+  listFollowups,
   retryFollowup,
   scheduleFollowup,
 } from "../services/followups";
-import type { FollowUp, ScheduleFollowupInput } from "../types";
+import type { FollowUp, FollowupListResult, ListFollowupsInput, ScheduleFollowupInput } from "../types";
 
 export const followupKeys = {
   all: ["followups"] as const,
+  lists: () => [...followupKeys.all, "list"] as const,
+  list: (params: ListFollowupsInput) => [...followupKeys.lists(), params] as const,
   detail: (id: string) => [...followupKeys.all, "detail", id] as const,
 };
 
@@ -58,6 +60,18 @@ export function useFollowupQuery(id: string | undefined) {
   });
 }
 
+/** Paginated backend follow-up rows. Previous page stays visible while refetching. */
+export function useFollowupsQuery(params: ListFollowupsInput, opts?: { enabled?: boolean }) {
+  return useQuery<FollowupListResult>({
+    queryKey: followupKeys.list(params),
+    queryFn: () => listFollowups(params),
+    retry: shouldRetry,
+    staleTime: 15_000,
+    placeholderData: (previousData) => previousData,
+    enabled: opts?.enabled ?? true,
+  });
+}
+
 function useFollowupActionMutation(
   action: (id: string) => Promise<FollowUp>
 ) {
@@ -67,6 +81,8 @@ function useFollowupActionMutation(
     onSuccess: (followup) => {
       queryClient.setQueryData(followupKeys.detail(followup.id), followup);
       queryClient.invalidateQueries({ queryKey: followupKeys.detail(followup.id) });
+      // Refresh the live list so execute/cancel/retry state changes appear.
+      queryClient.invalidateQueries({ queryKey: followupKeys.all });
     },
   });
 }

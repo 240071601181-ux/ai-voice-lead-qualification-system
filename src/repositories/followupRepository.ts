@@ -38,6 +38,61 @@ export const findFollowupById = async (id: string): Promise<FollowupRow | null> 
   return result.rows[0] || null;
 };
 
+export interface FollowupListFilter {
+  status?: FollowupStatus;
+  leadId?: string;
+  action?: FollowupAction;
+}
+
+/** Paginated follow-up rows, newest first. All filter fields optional. */
+export const findFollowups = async (
+  filter: FollowupListFilter,
+  limit: number,
+  offset: number
+): Promise<FollowupRow[]> => {
+  const clauses: string[] = [];
+  const values: any[] = [];
+  if (filter.status) {
+    values.push(filter.status);
+    clauses.push(`status = $${values.length}`);
+  }
+  if (filter.leadId) {
+    values.push(filter.leadId);
+    clauses.push(`lead_id = $${values.length}`);
+  }
+  if (filter.action) {
+    values.push(filter.action);
+    clauses.push(`action = $${values.length}`);
+  }
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  values.push(limit, offset);
+  const result = await pool.query(
+    `SELECT * FROM follow_ups ${where} ORDER BY created_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    values
+  );
+  return result.rows;
+};
+
+export const countFollowups = async (filter: FollowupListFilter): Promise<number> => {
+  const clauses: string[] = [];
+  const values: any[] = [];
+  if (filter.status) {
+    values.push(filter.status);
+    clauses.push(`status = $${values.length}`);
+  }
+  if (filter.leadId) {
+    values.push(filter.leadId);
+    clauses.push(`lead_id = $${values.length}`);
+  }
+  if (filter.action) {
+    values.push(filter.action);
+    clauses.push(`action = $${values.length}`);
+  }
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const result = await pool.query(`SELECT COUNT(*) AS total FROM follow_ups ${where}`, values);
+  return Number(result.rows[0]?.total ?? 0);
+};
+
 export const findFollowupByKey = async (key: string): Promise<FollowupRow | null> => {
   const result = await pool.query('SELECT * FROM follow_ups WHERE followup_key = $1', [key]);
   return result.rows[0] || null;

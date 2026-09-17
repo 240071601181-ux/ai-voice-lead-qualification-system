@@ -105,6 +105,7 @@ describe('Calendar endpoints', () => {
   });
 
   it('should check availability and read bookings by id', async () => {
+
     const free = await request(app).get('/api/v1/calendar/availability').query({ ...slot });
     expect(free.status).toBe(200);
     expect(free.body).toEqual({ success: true, data: { available: true } });
@@ -119,5 +120,28 @@ describe('Calendar endpoints', () => {
     (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
     const missing = await request(app).get('/api/v1/calendar/bookings/does-not-exist');
     expect(missing.status).toBe(404);
+  });
+
+  it('should report unconfigured booking with the truthful message (disabled + no_config)', async () => {
+    const expected =
+      'Calendar booking is not configured. Connect Google Calendar to create a meeting.';
+
+    process.env = { ...OLD_ENV, CALENDAR_ENABLED: 'false' };
+    const disabled = await request(app)
+      .post('/api/v1/calendar/bookings')
+      .send({ callId: 'call-1', ...slot });
+    expect(disabled.status).toBe(503);
+    expect(disabled.body.error.message).toBe(expected);
+
+    const disabledAvail = await request(app).get('/api/v1/calendar/availability').query({ ...slot });
+    expect(disabledAvail.status).toBe(503);
+    expect(disabledAvail.body.error.message).toBe(expected);
+
+    process.env = { ...OLD_ENV, CALENDAR_ENABLED: 'true', CALENDAR_PROVIDER: 'mock' };
+    const noConfig = await request(app)
+      .post('/api/v1/calendar/bookings')
+      .send({ callId: 'call-1', ...slot });
+    expect(noConfig.status).toBe(503);
+    expect(noConfig.body.error.message).toBe(expected);
   });
 });

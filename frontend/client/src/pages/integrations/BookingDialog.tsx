@@ -5,8 +5,9 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/app/ui";
 import { useToast } from "@/layouts/AppLayout";
 import { useAvailabilityQuery, useCreateBookingMutation } from "@/api/hooks/useCalendar";
+import { stripSecondsToMinute } from "@/api/calendarDateTime";
 import type { CalendarAvailabilityQuery, CreateCalendarBookingInput } from "@/api/types";
-import { getUserMessage } from "@/api/errors";
+import { getCalendarBookingErrorMessage } from "@/api/errors";
 
 const dialogStyle: React.CSSProperties = {
   position: "fixed",
@@ -73,7 +74,10 @@ export function BookingDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const set = (key: keyof FormValues) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
-    setValues((v) => ({ ...v, [key]: e.target.value }));
+    // Start/End stay minute-precision: strip any seconds at the UI boundary.
+    const raw = e.target.value;
+    const next = key === "start" || key === "end" ? stripSecondsToMinute(raw) : raw;
+    setValues((v) => ({ ...v, [key]: next }));
     setFieldError(null);
     // The checked slot changed — previous availability no longer applies.
     setAvailParams(null);
@@ -129,7 +133,7 @@ export function BookingDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         setAvailParams(null);
         navigate(`/calendar/${booking.id}`);
       },
-      onError: (error) => setSubmitError(getUserMessage(error)),
+      onError: (error) => setSubmitError(getCalendarBookingErrorMessage(error)),
     });
   };
 
@@ -140,15 +144,15 @@ export function BookingDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         <Dialog.Content style={dialogStyle} aria-label="New booking">
           <section className="card tab-panel">
             <div className="card-header">
-              <div><span className="section-kicker">MEETINGS</span><h2>New booking</h2></div>
+              <div><span className="section-kicker">MEETINGS</span><Dialog.Title asChild><h2>New booking</h2></Dialog.Title></div>
               <button className="more-btn" onClick={() => onOpenChange(false)}><X size={16} /></button>
             </div>
-            <p className="lede">Books an explicitly requested slot via the backend. Eligibility and slot validation stay backend-side.</p>
+            <Dialog.Description asChild><p className="lede">Books an explicitly requested slot via the backend. Eligibility and slot validation stay backend-side.</p></Dialog.Description>
             <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
               <label>Lead ID<input value={values.leadId} onChange={set("leadId")} placeholder="backend lead id (or Call ID below)" /></label>
               <label>Call ID<input value={values.callId} onChange={set("callId")} placeholder="backend call id (or Lead ID above)" /></label>
-              <label>Start<input type="datetime-local" value={values.start} onChange={set("start")} /></label>
-              <label>End<input type="datetime-local" value={values.end} onChange={set("end")} /></label>
+              <label>Start<input type="datetime-local" step="60" value={values.start} onChange={set("start")} /></label>
+              <label>End<input type="datetime-local" step="60" value={values.end} onChange={set("end")} /></label>
               <label>Timezone (optional)<input value={values.timezone} onChange={set("timezone")} placeholder="e.g. Asia/Kolkata" /></label>
               <label>Summary (optional)<input value={values.summary} onChange={set("summary")} placeholder="e.g. Freight review" /></label>
               <label>Notes (optional)<input value={values.description} onChange={set("description")} placeholder="optional details" /></label>
@@ -166,7 +170,7 @@ export function BookingDialog({ open, onOpenChange }: { open: boolean; onOpenCha
               )}
               {availParams && availability.isError && (
                 <span style={{ fontSize: 11, color: "#f87171" }}>
-                  {getUserMessage(availability.error instanceof Error ? availability.error : new Error("Something went wrong."))}
+                  {getCalendarBookingErrorMessage(availability.error instanceof Error ? availability.error : new Error("Something went wrong."))}
                 </span>
               )}
             </div>

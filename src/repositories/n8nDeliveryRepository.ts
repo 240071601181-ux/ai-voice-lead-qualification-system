@@ -110,3 +110,67 @@ export const markDeliveryFailed = async (
   );
   return result.rows[0];
 };
+
+export interface N8nDeliveryStats {
+  total: number;
+  delivered: number;
+  failed: number;
+  lastStatus: N8nDeliveryStatus | null;
+  lastSyncAt: string | null;
+}
+
+/**
+ * Real delivery history aggregates for diagnostics + metrics. Counts only —
+ * no payloads, no webhook URLs, no secrets.
+ */
+export const getN8nDeliveryStats = async (): Promise<N8nDeliveryStats> => {
+  const counts = await pool.query(
+    `SELECT status, COUNT(*)::int AS count FROM n8n_deliveries GROUP BY status`
+  );
+  const byStatus: Record<string, number> = {};
+  for (const row of counts.rows) {
+    byStatus[row.status] = Number(row.count) || 0;
+  }
+  const latest = await pool.query(
+    `SELECT status, updated_at FROM n8n_deliveries ORDER BY updated_at DESC LIMIT 1`
+  );
+  const total = Object.values(byStatus).reduce((sum, n) => sum + n, 0);
+  return {
+    total,
+    delivered: byStatus.delivered || 0,
+    failed: byStatus.failed || 0,
+    lastStatus: (latest.rows[0]?.status as N8nDeliveryStatus) || null,
+    lastSyncAt: latest.rows[0]?.updated_at || null
+  };
+};
+
+export interface N8nWorkflowDeliveryStat {
+  workflow: string;
+  deliveries: number;
+  lastStatus: N8nDeliveryStatus | null;
+  lastDeliveryAt: string | null;
+}
+
+/** Per-workflow delivery stats (real rows; workflow names only). */
+export const getN8nWorkflowStats = async (): Promise<N8nWorkflowDeliveryStat[]> => {
+  const res = await pool.query(
+    `SELECT workflow, COUNT(*)::int AS deliveries, MAX(updated_at) AS "lastDeliveryAt"
+       FROM n8n_deliveries
+      GROUP BY workflow`
+  );
+  const latest = await pool.query(
+    `SELECT DISTINCT ON (workflow) workflow, status
+       FROM n8n_deliveries
+      ORDER BY workflow, updated_at DESC`
+  );
+  const lastByWorkflow: Record<string, N8nDeliveryStatus> = {};
+  for (const row of latest.rows) {
+    lastByWorkflow[row.workflow] = row.status;
+  }
+  return res.rows.map((row: any) => ({
+    workflow: row.workflow,
+    deliveries: Number(row.deliveries) || 0,
+    lastStatus: lastByWorkflow[row.workflow] || null,
+    lastDeliveryAt: row.lastDeliveryAt || null
+  }));
+};

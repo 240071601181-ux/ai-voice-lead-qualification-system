@@ -19,7 +19,13 @@
  */
 
 import { httpClient } from "../httpClient";
-import type { AgentChatCompletionInput, AgentChatCompletionResult } from "../types";
+import type {
+  AgentChatCompletionInput,
+  AgentChatCompletionResult,
+  AgentConfig,
+  AgentConfigPatch,
+  AgentHealth,
+} from "../types";
 
 export function postAgentChatCompletion(
   data: AgentChatCompletionInput
@@ -28,6 +34,31 @@ export function postAgentChatCompletion(
     "/api/v1/vapi/custom-llm/chat/completions",
     data
   );
+}
+
+/** Current operator-visible agent configuration (backend runtime store). */
+export function getAgentConfig(): Promise<AgentConfig> {
+  return httpClient.get<AgentConfig>("/api/v1/agent/config");
+}
+
+/** Persist editable conversation behavior / paused flag. */
+export function patchAgentConfig(patch: AgentConfigPatch): Promise<AgentConfig> {
+  return httpClient.patch<AgentConfig>("/api/v1/agent/config", patch);
+}
+
+/** Pause the agent (persisted backend-side). */
+export function pauseAgent(): Promise<AgentConfig> {
+  return httpClient.post<AgentConfig>("/api/v1/agent/pause");
+}
+
+/** Resume the agent (persisted backend-side). */
+export function resumeAgent(): Promise<AgentConfig> {
+  return httpClient.post<AgentConfig>("/api/v1/agent/resume");
+}
+
+/** Honest agent health: real status flags; metrics are null (uncollected). */
+export function getAgentHealth(): Promise<AgentHealth> {
+  return httpClient.get<AgentHealth>("/api/v1/agent/health");
 }
 
 /** First assistant message text, or empty string when the backend returns none. */

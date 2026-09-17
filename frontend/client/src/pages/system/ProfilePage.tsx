@@ -49,9 +49,9 @@ export default function ProfilePage() {
               >
                 <Card className="tab-panel">
                   <div className="card-header">
-                    <div><span className="section-kicker">SESSION</span><h2>Sign out?</h2></div>
+                    <div><span className="section-kicker">SESSION</span><Dialog.Title asChild><h2>Sign out?</h2></Dialog.Title></div>
                   </div>
-                  <p className="lede">You will be signed out of the MadVoice operations workspace on this device.</p>
+                  <Dialog.Description asChild><p className="lede">You will be signed out of the MadVoice operations workspace on this device.</p></Dialog.Description>
                   <div className="heading-actions" style={{ marginTop: 18 }}>
                     <Button variant="ghost" onClick={() => setLogoutOpen(false)}>Stay signed in</Button>
                     <Button variant="danger" onClick={handleLogout}>Sign out</Button>

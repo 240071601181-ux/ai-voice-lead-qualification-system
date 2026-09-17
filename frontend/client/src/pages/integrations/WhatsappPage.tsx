@@ -1,14 +1,13 @@
-import { IntegrationPage } from "./IntegrationPage";
+import { WhatsappPanel } from "./WhatsappPanel";
 import { useToast } from "@/layouts/AppLayout";
 
 /**
- * Phase 14C-11: WhatsApp stays fully mock/demo. Backend route audit confirms
- * NO user-facing WhatsApp endpoint exists — sending is internal async-only
- * (src/services/whatsapp/*, template sends gated by consent server-side).
- * Nothing is sent from the browser, no consent/opt-in behavior was faked,
- * and no provider credentials exist in frontend code.
+ * WhatsApp integration — fully wired to the real backend
+ * (GET /api/v1/whatsapp/diagnostics, GET /api/v1/whatsapp/deliveries).
+ * Sends stay event-driven and consent-gated server-side; the browser never
+ * sends messages. No demo counts; see WhatsappPanel.
  */
 export default function WhatsappPage() {
   const { notify } = useToast();
-  return <IntegrationPage type="/whatsapp" onToast={notify} />;
+  return <WhatsappPanel onToast={notify} />;
 }

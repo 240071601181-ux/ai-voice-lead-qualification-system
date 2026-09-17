@@ -1,4 +1,5 @@
 import { agentConfig } from './config';
+import { getAgentPromptContext } from '../services/agentConfigService';
 import { getLlmProvider, LlmMessage, LlmResponse, LlmToolDefinition } from './llm';
 import { getStateByCallId } from '../services/conversationStateService';
 import { searchKnowledge } from '../services/knowledgeService';
@@ -77,8 +78,12 @@ export class AgentOrchestrator {
       }
     }
 
-    // 3. Assemble System Prompt
+    // 3. Assemble System Prompt (operator configuration is read live so
+    // saved AI Agent page edits actually affect behavior)
     const fullSystemPrompt = `${agentConfig.systemPrompt}
+
+OPERATOR CONFIGURATION (live):
+${getAgentPromptContext()}
 
 SUPPORTED LANGUAGES & RULES:
 - Languages: English, Hindi, Tamil.

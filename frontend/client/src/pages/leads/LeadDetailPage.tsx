@@ -26,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Pencil } from "lucide-react";
 import { useLeadDetail } from "@/api/hooks/useLeads";
 import { useStartCallMutation } from "@/api/hooks/useCalls";
-import { getUserMessage } from "@/api/errors";
+import { getStartCallErrorMessage, getUserMessage } from "@/api/errors";
 
 /**
  * Phase 14C-VOICE-1 — Real outbound call button.
@@ -48,7 +48,7 @@ export function StartCallButton({ leadId, onToast }: { leadId: string | null; on
       { leadId },
       {
         onSuccess: (result) => onToast(`Call started · ${result.status} · ${result.vapiCallId}`),
-        onError: (error) => onToast(getUserMessage(error)),
+        onError: (error) => onToast(getStartCallErrorMessage(error)),
       }
     );
   };
@@ -61,7 +61,7 @@ export function StartCallButton({ leadId, onToast }: { leadId: string | null; on
         <small style={{ fontSize: 10, color: "#34d399" }}>Call {startCall.data.vapiCallId} · {startCall.data.status}</small>
       ) : null}
       {startCall.isError ? (
-        <small style={{ fontSize: 10, color: "#f87171" }}>{getUserMessage(startCall.error)}</small>
+        <small style={{ fontSize: 10, color: "#f87171" }}>{getStartCallErrorMessage(startCall.error)}</small>
       ) : null}
     </span>
   );

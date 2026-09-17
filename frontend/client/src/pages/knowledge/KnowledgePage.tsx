@@ -1,15 +1,13 @@
-import { IntegrationPage } from "../integrations/IntegrationPage";
+import { KnowledgeIntegrationPanel } from "../integrations/KnowledgeIntegrationPanel";
 import { useToast } from "@/layouts/AppLayout";
 
 /**
- * Phase 14C-9: the knowledge inventory stays mock. The backend exposes only
- * POST /api/v1/knowledge/ingest and POST /api/v1/knowledge/search — no
- * document-list and no document-detail endpoint — so no list/detail hooks
- * exist (see `api/hooks/useKnowledge.ts`). Search (/knowledge/search) and
- * ingestion (/knowledge/ingest) are live; this overview switches once a
- * backend list endpoint lands. IntegrationPage is shared and untouched.
+ * Knowledge base overview — fully wired to the real backend
+ * (GET /api/v1/knowledge/documents + /documents/:id + /diagnostics, plus
+ * the live /knowledge/ingest and /knowledge/search flows). No demo
+ * documents or hardcoded aggregates; see KnowledgeIntegrationPanel.
  */
 export default function KnowledgePage() {
   const { notify } = useToast();
-  return <IntegrationPage type="/knowledge" onToast={notify} />;
+  return <KnowledgeIntegrationPanel onToast={notify} />;
 }

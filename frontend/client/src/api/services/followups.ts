@@ -3,6 +3,7 @@
  *
  * Backend routes (existing Express backend, DO NOT MODIFY):
  *   POST /api/v1/followups/schedule
+ *   GET  /api/v1/followups            (status/leadId/action/page/limit, paginated)
  *   GET  /api/v1/followups/:id
  *   POST /api/v1/followups/:id/execute
  *   POST /api/v1/followups/:id/cancel
@@ -11,8 +12,6 @@
  *
  * IMPORTANT: `executeDueFollowups` is internal/admin functionality for a
  * future scheduler/worker. Do NOT expose it as a normal user-facing action.
- *
- * NOT connected to any UI in this phase.
  */
 
 import { httpClient } from "../httpClient";
@@ -20,11 +19,25 @@ import type {
   ExecuteDueFollowupsInput,
   ExecuteDueFollowupsResult,
   FollowUp,
+  FollowupListResult,
+  ListFollowupsInput,
   ScheduleFollowupInput,
 } from "../types";
 
 export function scheduleFollowup(data: ScheduleFollowupInput): Promise<FollowUp> {
   return httpClient.post<FollowUp>("/api/v1/followups/schedule", data);
+}
+
+export function listFollowups(params: ListFollowupsInput = {}): Promise<FollowupListResult> {
+  return httpClient.get<FollowupListResult>("/api/v1/followups", {
+    query: {
+      status: params.status || undefined,
+      leadId: params.leadId || undefined,
+      action: params.action || undefined,
+      page: params.page,
+      limit: params.limit,
+    },
+  });
 }
 
 export function getFollowup(id: string): Promise<FollowUp> {

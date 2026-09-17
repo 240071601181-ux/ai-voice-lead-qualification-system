@@ -158,6 +158,21 @@ export interface ScheduleFollowupInput {
   template?: string | null;
 }
 
+export interface ListFollowupsInput {
+  status?: FollowupStatus;
+  leadId?: string;
+  action?: FollowupAction;
+  page?: number;
+  limit?: number;
+}
+
+export interface FollowupListResult {
+  followups: FollowUp[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface ExecuteDueFollowupsInput {
   limit?: number;
 }
@@ -224,6 +239,32 @@ export interface CalendarAvailabilityResult {
   available: boolean;
 }
 
+export type CalendarSyncRunStatus = "success" | "failed";
+
+export interface CalendarSyncState {
+  id: number;
+  status: CalendarSyncRunStatus;
+  last_sync_at: string;
+  message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CalendarDiagnosticStatus = "ok" | "failed" | "skipped";
+
+export interface CalendarDiagnosticCheck {
+  name: string;
+  status: CalendarDiagnosticStatus;
+  message: string;
+}
+
+export type CalendarDiagnosticsStatus = "ok" | "not_configured" | "error";
+
+export interface CalendarDiagnostics {
+  status: CalendarDiagnosticsStatus;
+  checks: CalendarDiagnosticCheck[];
+}
+
 // ---------------------------------------------------------------------------
 // Knowledge  (backend: src/models/Knowledge.ts)
 // ---------------------------------------------------------------------------
@@ -275,6 +316,219 @@ export interface SearchKnowledgeResult {
   query: string;
   totalResults: number;
   results: KnowledgeSearchResult[];
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge inventory + diagnostics  (backend: src/routes/knowledgeRoutes.ts)
+//
+// Real rows from the knowledge store — the Knowledge Base page renders
+// these verbatim (never demo documents). No aggregate telemetry exists,
+// so success-rate style metrics stay "--" / Unavailable in the UI.
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeDocumentListItem {
+  id: string;
+  title: string;
+  source: string | null;
+  chunkCount: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListKnowledgeDocumentsResult {
+  documents: KnowledgeDocumentListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  document_id: string;
+  chunk_index: number;
+  chunk_text: string;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDocumentDetail {
+  document: KnowledgeDocument;
+  chunks: KnowledgeChunk[];
+}
+
+export type KnowledgeDiagnosticStatus = "ok" | "failed" | "skipped";
+
+export interface KnowledgeDiagnosticCheck {
+  name: string;
+  status: KnowledgeDiagnosticStatus;
+  message: string;
+}
+
+export interface KnowledgeDiagnostics {
+  status: "ok" | "not_configured" | "error";
+  checks: KnowledgeDiagnosticCheck[];
+  documentCount: number;
+  chunkCount: number;
+  embeddingProvider: string;
+  embeddingDimension: number;
+}
+
+// ---------------------------------------------------------------------------
+// Integration diagnostics + history (backend: /api/v1/crm, /api/v1/whatsapp,
+// /api/v1/n8n, /api/v1/calendar — real config/database/history checks, no
+// secrets; aggregates that do not exist stay "--" / Unavailable in the UI)
+// ---------------------------------------------------------------------------
+
+export type IntegrationDiagnosticStatus = "ok" | "failed" | "skipped";
+
+export interface IntegrationDiagnosticCheck {
+  name: string;
+  status: IntegrationDiagnosticStatus;
+  message: string;
+}
+
+export type IntegrationDiagnosticsOverall = "ok" | "not_configured" | "error";
+
+export interface CrmSyncHistory {
+  total: number;
+  success: number;
+  failed: number;
+  lastStatus: string | null;
+  lastSyncAt: string | null;
+}
+
+export interface CrmDiagnostics {
+  status: IntegrationDiagnosticsOverall;
+  checks: IntegrationDiagnosticCheck[];
+  provider: string;
+  history: CrmSyncHistory;
+}
+
+export interface CrmSyncAttempt {
+  id: string;
+  lead_id: string | null;
+  call_id: string | null;
+  provider: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrmSyncNowResult {
+  outcome: { ok: boolean; skipped?: string; attempts?: number };
+  message: string;
+}
+
+export interface WhatsappDeliveryHistory {
+  total: number;
+  delivered: number;
+  failed: number;
+  lastStatus: string | null;
+  lastSyncAt: string | null;
+}
+
+export interface WhatsappDiagnostics {
+  status: IntegrationDiagnosticsOverall;
+  checks: IntegrationDiagnosticCheck[];
+  provider: string;
+  requireConsent: boolean;
+  templateNames: string[];
+  history: WhatsappDeliveryHistory;
+}
+
+export interface WhatsappDelivery {
+  id: string;
+  template: string;
+  lead_id: string | null;
+  call_id: string | null;
+  provider: string;
+  language: string | null;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface N8nDeliveryHistory {
+  total: number;
+  delivered: number;
+  failed: number;
+  lastStatus: string | null;
+  lastSyncAt: string | null;
+}
+
+export interface N8nDiagnostics {
+  status: IntegrationDiagnosticsOverall;
+  checks: IntegrationDiagnosticCheck[];
+  workflowCount: number;
+  eventCount: number;
+  history: N8nDeliveryHistory;
+}
+
+export interface N8nWorkflowStatus {
+  event: string;
+  name: string;
+  urlConfigured: boolean;
+  deliveries: number;
+  lastStatus: string | null;
+  lastDeliveryAt: string | null;
+}
+
+export interface CalendarBookingListItem {
+  id: string;
+  lead_id: string | null;
+  call_id: string | null;
+  provider: string;
+  external_event_id: string | null;
+  meet_url: string | null;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  timezone: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListCalendarBookingsResult {
+  bookings: CalendarBookingListItem[];
+  total: number;
+  failedCount: number;
+  page: number;
+  limit: number;
+}
+
+// ---------------------------------------------------------------------------
+// Workspace settings  (backend: /api/v1/settings — single persisted row;
+// display preferences + notification flags only, never secrets)
+// ---------------------------------------------------------------------------
+
+export interface WorkspaceSettings {
+  id: number;
+  workspace_name: string;
+  timezone: string;
+  default_language: "English" | "Hindi" | "Tamil";
+  lead_score_threshold: number;
+  notify_hot_lead: boolean;
+  notify_integration_failure: boolean;
+  notify_followup_due: boolean;
+  notify_daily_digest: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceSettingsPatch {
+  workspace_name?: string;
+  timezone?: string;
+  default_language?: string;
+  lead_score_threshold?: number;
+  notify_hot_lead?: boolean;
+  notify_integration_failure?: boolean;
+  notify_followup_due?: boolean;
+  notify_daily_digest?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,4 +600,49 @@ export interface AgentChatCompletionResult {
   created: number;
   model: string;
   choices: AgentChatCompletionChoice[];
+}
+
+// ---------------------------------------------------------------------------
+// Agent configuration  (backend: /api/v1/agent/config + /pause + /resume,
+// /health — src/controllers/agentConfigController.ts)
+//
+// Operator-editable conversation behavior persisted backend-side
+// (process-lifetime runtime store with safe defaults). Languages/voice are
+// static backend configuration and are read-only here.
+// ---------------------------------------------------------------------------
+
+export interface AgentConfig {
+  name: string;
+  version: string;
+  paused: boolean;
+  greeting: string;
+  qualificationQuestions: string[];
+  escalationBehavior: string;
+  callEnding: string;
+  languages: string[];
+  voice: string;
+  maxTurns: number;
+  allowCodeSwitch: boolean;
+  requireConfirmation: boolean;
+}
+
+export interface AgentConfigPatch {
+  greeting?: string;
+  qualificationQuestions?: string[];
+  escalationBehavior?: string;
+  callEnding?: string;
+  paused?: boolean;
+}
+
+export interface AgentHealth {
+  status: "active" | "paused";
+  paused: boolean;
+  name: string;
+  version: string;
+  telephonyConfigured: boolean;
+  /** Always false: this UI has no live voice/browser session source. */
+  liveSession: boolean;
+  /** Always null: no aggregate telemetry is collected backend-side. */
+  metrics: null;
+  metricsReason: string;
 }

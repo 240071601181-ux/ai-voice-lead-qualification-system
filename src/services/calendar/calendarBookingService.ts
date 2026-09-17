@@ -36,6 +36,10 @@ import {
   markBookingFailed,
   markBookingSkipped,
   upsertBookingAttempt,
+  countBookings,
+  countFailedBookings,
+  listBookings,
+  CalendarBookingListItem,
   CalendarBookingRow
 } from '../../repositories/calendarBookingRepository';
 import { getCalendarConfig, isCalendarEnabled } from '../../config';
@@ -363,4 +367,40 @@ const safeProviderName = (): string => {
   } catch {
     return getCalendarConfig().provider || 'google';
   }
+};
+
+export interface ListCalendarBookingsResult {
+  bookings: CalendarBookingListItem[];
+  total: number;
+  failedCount: number;
+  page: number;
+  limit: number;
+}
+
+export const DEFAULT_BOOKINGS_LIMIT = 20;
+export const MAX_BOOKINGS_LIMIT = 100;
+
+/**
+ * Paginated booking inventory with real totals. The Calendar page table
+ * renders these rows verbatim (no demo meetings). Meet URLs / external
+ * event ids are included only as stored — never invented.
+ */
+export const listCalendarBookings = async (args: {
+  page?: unknown;
+  limit?: unknown;
+}): Promise<ListCalendarBookingsResult> => {
+  const page = args.page === undefined ? 1 : Number(args.page);
+  const limit = args.limit === undefined ? DEFAULT_BOOKINGS_LIMIT : Number(args.limit);
+  if (!Number.isInteger(page) || page < 1) {
+    throw new Error('page must be a positive integer');
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_BOOKINGS_LIMIT) {
+    throw new Error(`limit must be an integer between 1 and ${MAX_BOOKINGS_LIMIT}`);
+  }
+  const [bookings, total, failedCount] = await Promise.all([
+    listBookings({ limit, offset: (page - 1) * limit }),
+    countBookings(),
+    countFailedBookings()
+  ]);
+  return { bookings, total, failedCount, page, limit };
 };

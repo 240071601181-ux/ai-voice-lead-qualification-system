@@ -12,11 +12,12 @@
  * access to this endpoint until auth exists.
  */
 import { Request, Response, NextFunction } from 'express';
-import { FollowupAction, isFollowupAction } from '../services/followup/followupTypes';
+import { FollowupAction, FollowupStatus, isFollowupAction } from '../services/followup/followupTypes';
 import {
   cancelFollowup,
   executeDueFollowUps,
   executeFollowupOnce,
+  listFollowups,
   retryFollowup,
   scheduleFollowup
 } from '../services/followup/followupService';
@@ -85,7 +86,51 @@ export const schedule = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+const MAX_LIST_LIMIT = 100;
+const FOLLOWUP_STATUSES: readonly string[] = ['pending', 'processing', 'completed', 'failed', 'cancelled'];
+
+/** GET /api/v1/followups — paginated rows, newest first, optional filters. */
+export const list = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const query = req.query as Record<string, string | undefined>;
+    const errors: string[] = [];
+    let page = 1;
+    let limit = 20;
+    if (query.page !== undefined && query.page !== '') {
+      const parsed = Number(query.page);
+      if (!Number.isInteger(parsed) || parsed < 1) errors.push('page must be a positive integer');
+      else page = parsed;
+    }
+    if (query.limit !== undefined && query.limit !== '') {
+      const parsed = Number(query.limit);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_LIST_LIMIT) {
+        errors.push(`limit must be a positive integer between 1 and ${MAX_LIST_LIMIT}`);
+      } else limit = parsed;
+    }
+    if (query.status !== undefined && query.status !== '' && !FOLLOWUP_STATUSES.includes(query.status)) {
+      errors.push('status must be pending, processing, completed, failed, or cancelled');
+    }
+    if (query.action !== undefined && query.action !== '' && !isFollowupAction(query.action)) {
+      errors.push('action must be whatsapp_followup, crm_followup, or missed_reminder');
+    }
+    if (errors.length) {
+      return res.status(400).json({ success: false, error: { message: 'Validation error', code: 400, details: errors } });
+    }
+    const result = await listFollowups({
+      status: query.status ? (query.status as FollowupStatus) : undefined,
+      leadId: query.leadId || undefined,
+      action: query.action ? (query.action as FollowupAction) : undefined,
+      page,
+      limit
+    });
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getById = async (req: Request, res: Response, next: NextFunction) => {
+
   try {
     const followup = await findFollowupById(req.params.id);
     if (!followup) {

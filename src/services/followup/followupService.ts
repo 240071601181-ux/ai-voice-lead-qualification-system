@@ -36,9 +36,12 @@ import { buildFollowupKey, FollowupAction } from './followupTypes';
 import { resolveFollowupPlan, scheduledAtFor } from './followupPolicy';
 import {
   claimFollowupForExecution,
+  countFollowups,
   findDueFollowups,
   findFollowupById,
   findFollowupByKey,
+  findFollowups,
+  FollowupListFilter,
   markFollowupCancelled,
   markFollowupCompleted,
   markFollowupFailed,
@@ -164,6 +167,33 @@ export const enqueueFollowupScheduling = (input: {
  * each item. Resolves (never rejects) with one outcome per planned item.
  * COLD tiers and unknown states with meaningful contact schedule nothing.
  */
+export interface FollowupListOptions extends FollowupListFilter {
+  page: number;
+  limit: number;
+}
+
+export interface FollowupListResult {
+  followups: FollowupRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/** Paginated follow-up rows, newest first. Read-only; no policy applied. */
+export const listFollowups = async (opts: FollowupListOptions): Promise<FollowupListResult> => {
+  const offset = (opts.page - 1) * opts.limit;
+  const filter: FollowupListFilter = {
+    status: opts.status,
+    leadId: opts.leadId,
+    action: opts.action
+  };
+  const [followups, total] = await Promise.all([
+    findFollowups(filter, opts.limit, offset),
+    countFollowups(filter)
+  ]);
+  return { followups, total, page: opts.page, limit: opts.limit };
+};
+
 export const scheduleFollowupsForEvent = async (input: {
   leadId?: string | null;
   callId?: string | null;

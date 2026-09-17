@@ -118,3 +118,49 @@ export const markDeliveryFailed = async (
   );
   return result.rows[0];
 };
+
+export interface WhatsappDeliveryStats {
+  total: number;
+  delivered: number;
+  failed: number;
+  lastStatus: WhatsappDeliveryStatus | null;
+  lastSyncAt: string | null;
+}
+
+/**
+ * Real delivery history aggregates for diagnostics + metrics. Counts only —
+ * no message content, no phone numbers, no secrets.
+ */
+export const getWhatsappDeliveryStats = async (): Promise<WhatsappDeliveryStats> => {
+  const counts = await pool.query(
+    `SELECT status, COUNT(*)::int AS count FROM whatsapp_deliveries GROUP BY status`
+  );
+  const byStatus: Record<string, number> = {};
+  for (const row of counts.rows) {
+    byStatus[row.status] = Number(row.count) || 0;
+  }
+  const latest = await pool.query(
+    `SELECT status, updated_at FROM whatsapp_deliveries ORDER BY updated_at DESC LIMIT 1`
+  );
+  const total = Object.values(byStatus).reduce((sum, n) => sum + n, 0);
+  return {
+    total,
+    delivered: byStatus.delivered || 0,
+    failed: byStatus.failed || 0,
+    lastStatus: (latest.rows[0]?.status as WhatsappDeliveryStatus) || null,
+    lastSyncAt: latest.rows[0]?.updated_at || null
+  };
+};
+
+/** Most recent delivery attempts (newest first), bounded for UI lists. */
+export const listRecentDeliveries = async (limit: number): Promise<WhatsappDeliveryRow[]> => {
+  const res = await pool.query(
+    `SELECT id, template, lead_id, call_id, provider, language, status, attempts,
+            last_error, created_at, updated_at
+       FROM whatsapp_deliveries
+      ORDER BY updated_at DESC
+      LIMIT $1`,
+    [limit]
+  );
+  return res.rows;
+};

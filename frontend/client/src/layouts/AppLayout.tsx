@@ -7,9 +7,9 @@ import {
   ChevronRight,
   Menu,
   MoreHorizontal,
-  Search,
 } from "lucide-react";
 import { Logo, Toast } from "@/components/app/ui";
+import { GlobalSearch } from "@/components/app/GlobalSearch";
 import { navGroups, pageMeta } from "@/mock/pipeline";
 
 type ToastContextValue = { notify: (message: string) => void };
@@ -33,7 +33,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function AppLayout({ children, path }: { children: React.ReactNode; path: string }) {
-  const { notify } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [, navigate] = useLocation();
@@ -47,7 +46,7 @@ export function AppLayout({ children, path }: { children: React.ReactNode; path:
     </aside>
     {mobileOpen && <button className="mobile-scrim" onClick={() => setMobileOpen(false)} />}
     <main className="main-shell">
-      <header className="topbar"><button className="mobile-menu" onClick={() => setMobileOpen(true)}><Menu size={20} /></button><div className="topbar-title"><span>{meta.eyebrow}</span><h1>{meta.title}</h1></div><div className="topbar-actions"><button className="global-search" onClick={() => notify("Command search is ready for your query") }><Search size={16} /><span>Search anything</span><kbd>⌘ K</kbd></button><button className="icon-btn" onClick={() => navigate("/notifications")}><Bell size={18} /><i className="unread-dot" /></button><button className="top-avatar" onClick={() => navigate("/profile")}>MS</button></div></header>
+      <header className="topbar"><button className="mobile-menu" onClick={() => setMobileOpen(true)}><Menu size={20} /></button><div className="topbar-title"><span>{meta.eyebrow}</span><h1>{meta.title}</h1></div><div className="topbar-actions"><GlobalSearch /><button className="icon-btn" onClick={() => navigate("/notifications")}><Bell size={18} /><i className="unread-dot" /></button><button className="top-avatar" onClick={() => navigate("/profile")}>MS</button></div></header>
       <div className="page-content">{children}</div>
     </main>
   </div>;

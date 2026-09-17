@@ -105,3 +105,49 @@ export const markSyncFailed = async (id: string, lastError: string): Promise<Crm
   );
   return result.rows[0];
 };
+
+export interface CrmSyncStats {
+  total: number;
+  success: number;
+  failed: number;
+  lastStatus: CrmSyncStatus | null;
+  lastSyncAt: string | null;
+}
+
+/**
+ * Real sync history aggregates for diagnostics + metrics. Counts only —
+ * no payloads, no secrets.
+ */
+export const getCrmSyncStats = async (): Promise<CrmSyncStats> => {
+  const counts = await pool.query(
+    `SELECT status, COUNT(*)::int AS count FROM crm_syncs GROUP BY status`
+  );
+  const byStatus: Record<string, number> = {};
+  for (const row of counts.rows) {
+    byStatus[row.status] = Number(row.count) || 0;
+  }
+  const latest = await pool.query(
+    `SELECT status, updated_at FROM crm_syncs ORDER BY updated_at DESC LIMIT 1`
+  );
+  const total = Object.values(byStatus).reduce((sum, n) => sum + n, 0);
+  return {
+    total,
+    success: byStatus.success || 0,
+    failed: byStatus.failed || 0,
+    lastStatus: (latest.rows[0]?.status as CrmSyncStatus) || null,
+    lastSyncAt: latest.rows[0]?.updated_at || null
+  };
+};
+
+/** Most recent sync attempts (newest first), bounded for UI lists. */
+export const listRecentSyncs = async (limit: number): Promise<CrmSyncRow[]> => {
+  const res = await pool.query(
+    `SELECT id, lead_id, call_id, qualification_id, provider, status, attempts,
+            last_error, created_at, updated_at
+       FROM crm_syncs
+      ORDER BY updated_at DESC
+      LIMIT $1`,
+    [limit]
+  );
+  return res.rows;
+};

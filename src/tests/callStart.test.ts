@@ -163,6 +163,47 @@ describe('POST /api/v1/calls/start', () => {
     const res = await request(app).post('/api/v1/calls/start').send({ leadId: 'lead-1' });
     expect(res.status).toBe(503);
     expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toBe(
+      'Voice calling is not configured. Add a supported Vapi/Twilio phone number to place outbound calls.'
+    );
     expect(mockCreateCall).not.toHaveBeenCalled();
+  });
+
+  it('should report unconfigured telephony when Vapi rejects our credentials/numbers', async () => {
+    mockReads();
+    for (const vapiStatus of [400, 401, 403]) {
+      const providerErr: any = new Error(`Request failed with status code ${vapiStatus}`);
+      providerErr.status = vapiStatus;
+      providerErr.response = { status: vapiStatus };
+      mockCreateCall.mockRejectedValueOnce(providerErr);
+      const res = await request(app).post('/api/v1/calls/start').send({ leadId: 'lead-1' });
+      expect(res.status).toBe(503);
+      expect(res.body.error.message).toBe(
+        'Voice calling is not configured. Add a supported Vapi/Twilio phone number to place outbound calls.'
+      );
+    }
+  });
+
+  it('should keep provider-side failures as sanitized 502', async () => {
+    mockReads();
+    const providerErr: any = new Error('Request failed with status code 500');
+    providerErr.status = 500;
+    providerErr.response = { status: 500 };
+    mockCreateCall.mockRejectedValueOnce(providerErr);
+    const res = await request(app).post('/api/v1/calls/start').send({ leadId: 'lead-1' });
+    expect(res.status).toBe(502);
+    expect(res.body.error.message).toBe('Voice provider rejected the call request');
+  });
+
+  it('should sanitize provider-side failures as 502 (axios .status never leaks)', async () => {
+    mockReads();
+    const providerErr: any = new Error('Request failed with status code 500');
+    providerErr.status = 500;
+    providerErr.response = { status: 500 };
+    mockCreateCall.mockRejectedValueOnce(providerErr);
+    const res = await request(app).post('/api/v1/calls/start').send({ leadId: 'lead-1' });
+    expect(res.status).toBe(502);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toBe('Voice provider rejected the call request');
   });
 });

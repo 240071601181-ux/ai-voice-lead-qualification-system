@@ -78,3 +78,38 @@ export function getUserMessage(error: unknown): string {
   }
   return "Something went wrong. Please try again.";
 }
+
+/** Truthful user-facing message for unavailable outbound telephony. */
+export const TELEPHONY_NOT_CONFIGURED_MESSAGE =
+  "Voice calling is not configured. Add a supported Vapi/Twilio phone number to place outbound calls.";
+
+/** Truthful user-facing message for unconfigured calendar booking. */
+export const CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE =
+  "Calendar booking is not configured. Connect Google Calendar to create a meeting.";
+
+/**
+ * Start-call error message shared by the Calls page and Lead Details.
+ * Detects the backend's specific telephony-unconfigured signal (HTTP 503
+ * from POST /api/v1/calls/start) and shows the truthful message above;
+ * every other failure keeps the generic safe mapping.
+ */
+export function getStartCallErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 503) {
+    return TELEPHONY_NOT_CONFIGURED_MESSAGE;
+  }
+  return getUserMessage(error);
+}
+
+/**
+ * Booking-form error message. Detects the backend's specific
+ * booking-unconfigured signal (HTTP 503 from the calendar booking or
+ * availability endpoints) and shows the truthful message above; every
+ * other failure keeps the generic safe mapping. Deliberately distinct
+ * from sync-status messaging ("Calendar sync …").
+ */
+export function getCalendarBookingErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 503) {
+    return CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE;
+  }
+  return getUserMessage(error);
+}

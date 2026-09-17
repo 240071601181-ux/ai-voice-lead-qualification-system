@@ -132,3 +132,46 @@ export const markBookingFailed = async (
   );
   return result.rows[0];
 };
+
+export interface CalendarBookingListItem {
+  id: string;
+  lead_id: string | null;
+  call_id: string | null;
+  provider: string;
+  external_event_id: string | null;
+  meet_url: string | null;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  timezone: string | null;
+  status: CalendarBookingStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Paginated booking inventory (newest first). Powers
+ * GET /api/v1/calendar/bookings — the Calendar page table renders these
+ * real rows verbatim (no demo meetings). Meet URLs / event ids render only
+ * when the provider actually returned them.
+ */
+export const listBookings = async (args: { limit: number; offset: number }): Promise<CalendarBookingListItem[]> => {
+  const res = await pool.query(
+    `SELECT id, lead_id, call_id, provider, external_event_id, meet_url,
+            scheduled_start, scheduled_end, timezone, status, created_at, updated_at
+       FROM calendar_bookings
+      ORDER BY created_at DESC
+      LIMIT $1 OFFSET $2`,
+    [args.limit, args.offset]
+  );
+  return res.rows;
+};
+
+export const countBookings = async (): Promise<number> => {
+  const res = await pool.query('SELECT COUNT(*)::int AS count FROM calendar_bookings');
+  return res.rows[0]?.count ?? 0;
+};
+
+export const countFailedBookings = async (): Promise<number> => {
+  const res = await pool.query(`SELECT COUNT(*)::int AS count FROM calendar_bookings WHERE status = 'failed'`);
+  return res.rows[0]?.count ?? 0;
+};

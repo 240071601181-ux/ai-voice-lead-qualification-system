@@ -1,13 +1,13 @@
-import { IntegrationPage } from "./IntegrationPage";
+import { AutomationPanel } from "./AutomationPanel";
 import { useToast } from "@/layouts/AppLayout";
 
 /**
- * Phase 14C-11: n8n stays fully mock/demo. Backend route audit confirms NO
- * user-facing n8n endpoint exists — the emitter is internal async-only
- * (src/services/n8n/*). No /api/v1/n8n endpoints were invented, no webhook
- * is called from the browser, and no webhook secrets exist in frontend code.
+ * n8n automation — fully wired to the real backend
+ * (GET /api/v1/n8n/diagnostics, GET /api/v1/n8n/workflows). Only configured
+ * workflows are shown with real delivery stats; no emit action exists
+ * (emitting would fire real customer workflows). See AutomationPanel.
  */
 export default function AutomationPage() {
   const { notify } = useToast();
-  return <IntegrationPage type="/automation" onToast={notify} />;
+  return <AutomationPanel onToast={notify} />;
 }

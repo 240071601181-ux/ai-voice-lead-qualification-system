@@ -14,14 +14,15 @@
  * list keeps using mock data until a backend list endpoint exists.
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../errors";
 import {
   createQualification,
   getQualificationByCall,
   getQualificationByLead,
 } from "../services/qualifications";
-import type { CreateQualificationInput, Qualification as ApiQualification } from "../types";
+import type { CreateQualificationInput, Lead as ApiLead, Qualification as ApiQualification } from "../types";
+import { useLeadsQuery } from "./useLeads";
 
 export const qualificationKeys = {
   all: ["qualifications"] as const,
@@ -186,4 +187,61 @@ export function useQualificationDetailWithMockFallback(
     }
   }
   return result;
+}
+
+export interface QualificationRow {
+  lead: ApiLead;
+  qualification: ApiQualification;
+}
+
+/** Client-side tier filter over fetched rows (no backend tier filter exists). */
+export function filterQualificationRows(rows: QualificationRow[], tier: string): QualificationRow[] {
+  if (tier === "All signals") return rows;
+  return rows.filter((row) => row.qualification.tier === tier);
+}
+
+export interface QualificationRowsResult {
+  rows: QualificationRow[];
+  totalLeads: number;
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  refetch: () => Promise<void>;
+}
+
+/**
+ * Real qualification rows for the /qualifications list. The backend has no
+ * list endpoint, so rows are derived honestly: real leads (page 1) crossed
+ * with GET /api/v1/qualifications/leads/:leadId. Leads without a backend
+ * record (404) contribute no row — never fabricated. Only leads-list
+ * failure is page-level error; per-lead misses are normal.
+ */
+export function useQualificationRows(pageSize = 20, opts?: { enabled?: boolean }): QualificationRowsResult {
+  const enabled = opts?.enabled ?? true;
+  const leadsQuery = useLeadsQuery({ page: 1, limit: pageSize }, { enabled });
+  const leads = enabled ? leadsQuery.data?.leads ?? [] : [];
+  const lookups = useQueries({
+    queries: leads.map((lead) => ({
+      queryKey: qualificationKeys.byLead(lead.id),
+      queryFn: () => getQualificationByLead(lead.id),
+      retry: false,
+      staleTime: 30_000,
+    })),
+  });
+  const rows: QualificationRow[] = [];
+  leads.forEach((lead, i) => {
+    const qualification = lookups[i]?.data as ApiQualification | undefined;
+    if (qualification) rows.push({ lead, qualification });
+  });
+  return {
+    rows,
+    totalLeads: leadsQuery.data?.total ?? 0,
+    isPending: enabled && (leadsQuery.isPending || lookups.some((q) => q.isPending)),
+    isError: enabled && leadsQuery.isError,
+    error: leadsQuery.error,
+    refetch: async () => {
+      await leadsQuery.refetch();
+      await Promise.all(lookups.map((q) => q.refetch()));
+    },
+  };
 }
