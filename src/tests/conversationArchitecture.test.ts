@@ -108,15 +108,35 @@ describe('Phase 1: Text Conversation Architecture', () => {
       );
     });
 
-    it('should return null for unlinked conversationIds without touching call tables', async () => {
+    it('should return null for unknown conversationIds after checking the new table', async () => {
+      (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
+
       const state = await getStateByConversationId('conv-new');
       expect(state).toBeNull();
-      expect(pool.query).not.toHaveBeenCalled();
+      expect(pool.query).toHaveBeenCalledWith(
+        'SELECT * FROM conversation_states WHERE conversation_id = $1',
+        ['conv-new']
+      );
+    });
+
+    it('should prefer the conversation_states table over a linked legacy call', async () => {
+      const textState = { id: 's-text', conversation_id: 'conv-1', pickup_location: 'Chennai' };
+      (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [textState] });
+
+      const state = await getStateByConversationId('conv-1', { linkedCallId: 'call-9' });
+      expect(state).toEqual(textState);
+      expect(pool.query).toHaveBeenCalledTimes(1);
+      expect(pool.query).toHaveBeenCalledWith(
+        'SELECT * FROM conversation_states WHERE conversation_id = $1',
+        ['conv-1']
+      );
     });
 
     it('should resolve linked legacy calls through the existing lookup', async () => {
       const legacyState = { id: 's1', call_id: 'call-9', pickup_location: 'Chennai' };
-      (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [legacyState] });
+      (pool.query as jest.Mock)
+        .mockResolvedValueOnce({ rows: [] }) // conversation_states -> miss
+        .mockResolvedValueOnce({ rows: [legacyState] }); // legacy call lookup -> hit
 
       const state = await getStateByConversationId('conv-legacy', { linkedCallId: 'call-9' });
       expect(state).toEqual(legacyState);
@@ -129,6 +149,8 @@ describe('Phase 1: Text Conversation Architecture', () => {
 
   describe('orchestrator dual identity', () => {
     it('should process a conversation turn without requiring call state', async () => {
+      (pool.query as jest.Mock).mockResolvedValue({ rows: [] });
+
       const response = await orchestrator.processTurn({
         conversationId: 'conv-1',
         channel: 'web',
@@ -136,7 +158,14 @@ describe('Phase 1: Text Conversation Architecture', () => {
       });
 
       expect(response.content).toBeDefined();
-      expect(pool.query).not.toHaveBeenCalled();
+      expect(pool.query).toHaveBeenCalledWith(
+        'SELECT * FROM conversation_states WHERE conversation_id = $1',
+        ['conv-1']
+      );
+      expect(pool.query).not.toHaveBeenCalledWith(
+        expect.stringContaining('WHERE call_id'),
+        expect.anything()
+      );
     });
 
     it('should keep loading legacy call state on the call path', async () => {
@@ -163,13 +192,18 @@ describe('Phase 1: Text Conversation Architecture', () => {
     });
 
     it('should accept the reusable AgentContext object', async () => {
+      (pool.query as jest.Mock).mockResolvedValue({ rows: [] });
+
       const response = await orchestrator.processTurn({
         context: { conversationId: 'conv-ctx', leadId: 'lead-1', channel: 'whatsapp' },
         messages: [{ role: 'user', content: 'Hi' }],
       });
 
       expect(response.content).toBeDefined();
-      expect(pool.query).not.toHaveBeenCalled();
+      expect(pool.query).toHaveBeenCalledWith(
+        'SELECT * FROM conversation_states WHERE conversation_id = $1',
+        ['conv-ctx']
+      );
     });
 
     it('should remain stateless when no identity is provided', async () => {

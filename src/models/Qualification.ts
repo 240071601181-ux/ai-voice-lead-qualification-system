@@ -24,6 +24,8 @@ export interface QualificationDetails {
 export interface Qualification {
   id: string;
   call_id: string;
+  /** Nullable text-conversation anchor (Phase 2 bridge; call_id stays canonical). */
+  conversation_id?: string | null;
   lead_id?: string | null;
   score: number;
   tier: QualificationTier;

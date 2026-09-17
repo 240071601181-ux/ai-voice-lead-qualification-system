@@ -62,8 +62,38 @@ Call-anchored state → RAG → LLM → Tools → response
   `conversation_state` schema changes.
 - No frontend changes.
 
-## Phase 2 (not started)
+## Persistence layer (Phase 2)
 
-Back `getStateByConversationId` with `conversations` / `messages` /
-`conversation_states` tables, add the conversation message API, then wire
-qualification and integrations to `conversationId`.
+Migration `014_create_text_conversation_tables.sql` (additive; `001–013`
+untouched):
+
+```
+Lead
+ ↓
+Conversation (conversations: id, lead_id → leads, channel, status,
+│             started_at, ended_at, created/updated_at)
+ ├── Messages (conversation_messages: conversation_id → conversations
+ │             CASCADE, role system|user|assistant|tool, content,
+ │             metadata JSONB, tool_calls JSONB, created_at;
+ │             indexed (conversation_id, created_at) for chronological reads)
+ └── Conversation State (conversation_states: conversation_id UNIQUE →
+                        conversations CASCADE, same slot columns/types as
+                        the legacy table; future source of truth)
+ ↓
+AgentOrchestrator
+```
+
+- `qualifications.conversation_id` (nullable FK → conversations, partial
+  index) is a compatibility bridge; `call_id` stays `NOT NULL UNIQUE` and
+  scoring logic is unchanged.
+- Repositories: `conversationRepository` (create/getById/listByLeadId/
+  updateStatus/end), `conversationMessageRepository` (create/
+  listByConversationId/count/listRecentMessages),
+  `conversationStatesRepository` (get/create/update).
+- Services: `ConversationService` (lifecycle + validation) and
+  `ConversationMessageService` (append/history/recent/count) — no LLM logic.
+- `getStateByConversationId` now reads `conversation_states` first, then a
+  linked legacy call, then `null`. `getStateByCallId` and the old
+  `conversation_state` table are unchanged and remain the temporary source
+  of truth for voice.
+- `calls` and old `conversation_state` remain legacy until Phase 9.
