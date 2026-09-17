@@ -244,6 +244,51 @@ export const isVapiCallConfigured = (): boolean => {
   return cfg.apiKey.length > 0 && cfg.assistantId.length > 0 && cfg.phoneNumberId.length > 0;
 };
 
+export interface AuthConfig {
+  /** Server-only HMAC secret for short-lived access tokens. Never sent out. */
+  jwtSecret: string;
+  /** Access-token lifetime in seconds (short-lived). */
+  accessTtlSec: number;
+  /** Refresh-token lifetime in seconds (HttpOnly cookie transport). */
+  refreshTtlSec: number;
+  /** Refresh cookie name. */
+  refreshCookieName: string;
+  /** Issuer claim stamped into access tokens and validated on verify. */
+  issuer: string;
+  /** Audience claim stamped into access tokens and validated on verify. */
+  audience: string;
+  /**
+   * Legacy pasted CHAT_JWT fallback for conversation routes. Dev/test
+   * compatibility only: forced off in production regardless of this flag.
+   */
+  allowChatJwtFallback: boolean;
+  /** Max failed login attempts per IP per window before 429. */
+  loginMaxAttempts: number;
+  /** Login rate-limit window in milliseconds. */
+  loginWindowMs: number;
+}
+
+const intOr = (raw: string | undefined, fallback: number): number => {
+  const parsed = Number(raw);
+  return raw !== undefined && raw !== '' && Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+export const getAuthConfig = (): AuthConfig => ({
+  jwtSecret: process.env.AUTH_JWT_SECRET || '',
+  accessTtlSec: intOr(process.env.AUTH_ACCESS_TTL_SEC, 900),
+  refreshTtlSec: intOr(process.env.AUTH_REFRESH_TTL_SEC, 7 * 24 * 3600),
+  refreshCookieName: process.env.AUTH_REFRESH_COOKIE || 'mad_rt',
+  issuer: process.env.AUTH_TOKEN_ISSUER || 'madlead-ai',
+  audience: process.env.AUTH_TOKEN_AUDIENCE || 'madlead-app',
+  allowChatJwtFallback:
+    (process.env.CHAT_AUTH_FALLBACK_ENABLED || '').toLowerCase() !== 'false' &&
+    process.env.NODE_ENV !== 'production',
+  loginMaxAttempts: intOr(process.env.AUTH_LOGIN_MAX_ATTEMPTS, 10),
+  loginWindowMs: intOr(process.env.AUTH_LOGIN_WINDOW_MS, 10 * 60 * 1000),
+});
+
+export const isAuthConfigured = (): boolean => getAuthConfig().jwtSecret.length > 0;
+
 export interface ChatConfig {
   /** Max persisted messages forwarded to the LLM per turn (history window). */
   maxContextMessages: number;

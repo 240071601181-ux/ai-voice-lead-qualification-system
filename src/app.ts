@@ -11,6 +11,7 @@ import calendarRoutes from './routes/calendarRoutes';
 import followupRoutes from './routes/followupRoutes';
 import callRoutes from './routes/callRoutes';
 import agentRoutes from './routes/agentRoutes';
+import authRoutes from './routes/authRoutes';
 import conversationRoutes from './routes/conversationRoutes';
 import crmRoutes from './routes/crmRoutes';
 import whatsappRoutes from './routes/whatsappRoutes';
@@ -73,6 +74,7 @@ app.post('/api/v1/vapi/custom-llm/chat/completions', handleCustomLlmChatCompleti
 app.post('/api/v1/vapi/custom-llm/chat/completions/custom-tool', handleVapiToolCalls);
 
 // API routes (versioned)
+app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/leads', leadRoutes);
 app.use('/api/v1/webhooks/vapi', vapiWebhookRoutes);
 app.use('/api/v1/knowledge', knowledgeRoutes);

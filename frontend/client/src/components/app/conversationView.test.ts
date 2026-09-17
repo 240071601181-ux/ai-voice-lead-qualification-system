@@ -53,7 +53,7 @@ describe("toVisibleMessages", () => {
 
 describe("conversationErrorCopy", () => {
   it("maps statuses to the required user-safe messages", () => {
-    expect(conversationErrorCopy(new ApiError("unauthorized", "x"))).toContain("Connect");
+    expect(conversationErrorCopy(new ApiError("unauthorized", "x"))).toBe("You are signed out. Please sign in again.");
     expect(conversationErrorCopy(new ApiError("conflict", "x"))).toBe("This conversation is no longer active.");
     expect(conversationErrorCopy(new ApiError("rate-limited", "x"))).toBe("Too many messages. Please wait a moment.");
     expect(conversationErrorCopy(new ApiError("server", "x"))).toBe("Something went wrong while generating the response.");

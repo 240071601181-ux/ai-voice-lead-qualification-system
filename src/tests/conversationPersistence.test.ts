@@ -44,7 +44,7 @@ describe('Phase 2: Text Conversation Persistence', () => {
       expect(created).toEqual(row);
       expect(pool.query).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO conversations'),
-        [null, 'web', 'active']
+        [null, 'web', 'active', null]
       );
     });
 
@@ -217,14 +217,15 @@ describe('Phase 2: Text Conversation Persistence', () => {
     const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
     const sql014 = readFileSync(path.join(migrationsDir, '014_create_text_conversation_tables.sql'), 'utf-8');
 
-    it('should keep the sequence additive (014 then 015 then 016)', () => {
+    it('should keep the sequence additive (014 through 017)', () => {
       const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
-      expect(files).toHaveLength(16);
-      expect(files[files.length - 3]).toBe('014_create_text_conversation_tables.sql');
-      expect(files[files.length - 2]).toBe('015_conversation_qualification.sql');
-      expect(files[files.length - 1]).toBe('016_conversation_calendar_bookings.sql');
+      expect(files).toHaveLength(17);
+      expect(files[files.length - 4]).toBe('014_create_text_conversation_tables.sql');
+      expect(files[files.length - 3]).toBe('015_conversation_qualification.sql');
+      expect(files[files.length - 2]).toBe('016_conversation_calendar_bookings.sql');
+      expect(files[files.length - 1]).toBe('017_user_auth_and_conversation_ownership.sql');
       expect(files.map((f) => f.slice(0, 3))).toEqual(
-        Array.from({ length: 16 }, (_, i) => String(i + 1).padStart(3, '0'))
+        Array.from({ length: 17 }, (_, i) => String(i + 1).padStart(3, '0'))
       );
     });
 
@@ -269,10 +270,9 @@ describe('Phase 2: Text Conversation Persistence', () => {
     });
   });
 
-  describe('migration 016 contents (Phase 8)', () => {
+    describe('migration 016 contents (Phase 8)', () => {
     const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
     const sql016 = readFileSync(path.join(migrationsDir, '016_conversation_calendar_bookings.sql'), 'utf-8');
-
     it('should anchor conversation bookings additively', () => {
       expect(sql016).toMatch(/ALTER TABLE calendar_bookings/);
       expect(sql016).toMatch(/ADD COLUMN IF NOT EXISTS conversation_id/);
@@ -284,6 +284,26 @@ describe('Phase 2: Text Conversation Persistence', () => {
       expect(sql016).not.toMatch(/ALTER TABLE calls/i);
       expect(sql016).not.toMatch(/ALTER TABLE conversation_state/i);
       expect(sql016).not.toMatch(/DROP COLUMN/i);
+    });
+  });
+
+  describe('migration 017 contents (Phase 11)', () => {
+    const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
+    const sql017 = readFileSync(path.join(migrationsDir, '017_user_auth_and_conversation_ownership.sql'), 'utf-8');
+
+    it('should create users/sessions and anchor conversation ownership additively', () => {
+      expect(sql017).toMatch(/CREATE TABLE IF NOT EXISTS users \(/);
+      expect(sql017).toMatch(/password_hash/);
+      expect(sql017).toMatch(/CREATE TABLE IF NOT EXISTS user_sessions \(/);
+      expect(sql017).toMatch(/ADD COLUMN IF NOT EXISTS user_id/);
+      expect(sql017).toMatch(/conversations_user_id_idx/);
+    });
+
+    it('should not touch or drop legacy structures', () => {
+      expect(sql017).not.toMatch(/DROP TABLE/i);
+      expect(sql017).not.toMatch(/ALTER TABLE calls/i);
+      expect(sql017).not.toMatch(/ALTER TABLE conversation_state/i);
+      expect(sql017).not.toMatch(/DROP COLUMN/i);
     });
   });
 });

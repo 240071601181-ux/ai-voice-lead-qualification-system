@@ -13,7 +13,7 @@ import {
 import { Button, Card } from "@/components/app/ui";
 import { pageMeta } from "@/mock/pipeline";
 import { useToast } from "@/layouts/AppLayout";
-import { demoLogout } from "@/app/demoAuth";
+import { useLogoutMutation } from "@/api/hooks/useSession";
 import {
   useUpdateWorkspaceSettingsMutation,
   useWorkspaceSettingsQuery,
@@ -184,9 +184,11 @@ function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
     );
   };
 
+  const logout = useLogoutMutation();
   const handleSignOut = () => {
-    demoLogout();
-    navigate("/login");
+    logout.mutate(undefined, {
+      onSettled: () => navigate("/login"),
+    });
   };
 
   const notifyValue = (key: NotificationKey): boolean =>

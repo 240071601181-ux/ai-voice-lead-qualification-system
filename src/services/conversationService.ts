@@ -11,6 +11,8 @@ import {
 export interface CreateConversationInput {
   leadId?: string | null;
   channel?: ConversationChannel;
+  /** Phase 11: owner. Null for legacy/dev-fallback rows (isolated). */
+  userId?: string | null;
 }
 
 export type EndConversationStatus = Extract<ConversationStatus, 'completed' | 'abandoned'>;
@@ -24,6 +26,7 @@ export class ConversationService {
     return repoCreate({
       lead_id: input.leadId || null,
       channel: input.channel ?? 'web',
+      user_id: input.userId ?? null,
     });
   }
 

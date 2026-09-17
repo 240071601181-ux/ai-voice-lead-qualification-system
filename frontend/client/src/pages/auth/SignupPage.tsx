@@ -1,9 +1,10 @@
 import { Redirect } from "wouter";
 import { AuthScreen } from "./AuthScreen";
-import { isDemoAuthenticated } from "@/app/demoAuth";
+import { useSessionQuery } from "@/api/hooks/useSession";
 
 export default function SignupPage() {
-  // Already signed in (demo session): bounce into the app.
-  if (isDemoAuthenticated()) return <Redirect to="/dashboard" />;
+  const session = useSessionQuery();
+  // Already signed in (backend-verified): bounce into the app.
+  if (!session.isPending && session.data) return <Redirect to="/dashboard" />;
   return <AuthScreen mode="/signup" />;
 }

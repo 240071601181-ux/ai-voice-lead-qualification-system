@@ -6,6 +6,8 @@ export interface CreateConversationInput {
   lead_id?: string | null;
   channel: ConversationChannel;
   status?: ConversationStatus;
+  /** Phase 11: owner. Null for legacy/dev-fallback rows (isolated, never shared). */
+  user_id?: string | null;
 }
 
 export const validateChannel = (channel: unknown): string[] =>
@@ -29,15 +31,41 @@ export const createConversation = async (input: CreateConversationInput): Promis
     throw new Error(statusErrors.join('; '));
   }
   const res = await pool.query(
-    `INSERT INTO conversations (lead_id, channel, status, started_at)
-     VALUES ($1, $2, $3, NOW()) RETURNING *`,
-    [input.lead_id || null, input.channel, status]
+    `INSERT INTO conversations (lead_id, channel, status, user_id, started_at)
+     VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
+    [input.lead_id || null, input.channel, status, input.user_id || null]
   );
   return res.rows[0];
 };
 
 export const findConversationById = async (id: string): Promise<Conversation | null> => {
   const res = await pool.query('SELECT * FROM conversations WHERE id = $1', [id]);
+  return res.rows[0] || null;
+};
+
+/**
+ * Phase 11 — ownership-scoped lookup for user-facing routes.
+ * `{ kind: 'user', userId }` matches only that user's rows;
+ * `{ kind: 'legacy' }` matches only unowned (user_id NULL) rows.
+ */
+export type ConversationOwnerScope =
+  | { kind: 'user'; userId: string }
+  | { kind: 'legacy' };
+
+export const findOwnedConversation = async (
+  id: string,
+  scope: ConversationOwnerScope
+): Promise<Conversation | null> => {
+  if (scope.kind === 'user') {
+    const res = await pool.query(
+      'SELECT * FROM conversations WHERE id = $1 AND user_id = $2',
+      [id, scope.userId]
+    );
+    return res.rows[0] || null;
+  }
+  const res = await pool.query('SELECT * FROM conversations WHERE id = $1 AND user_id IS NULL', [
+    id,
+  ]);
   return res.rows[0] || null;
 };
 
@@ -55,6 +83,8 @@ export interface ListConversationsFilter {
   channel?: ConversationChannel;
   limit: number;
   offset: number;
+  /** Phase 11: required for user-facing lists (ownership isolation). */
+  scope: ConversationOwnerScope;
 }
 
 /** Filtered, paginated list with deterministic newest-first ordering. */
@@ -62,6 +92,12 @@ export const listConversations = async (filter: ListConversationsFilter): Promis
   const conditions: string[] = [];
   const values: any[] = [];
   let idx = 1;
+  if (filter.scope.kind === 'user') {
+    conditions.push(`user_id = $${idx++}`);
+    values.push(filter.scope.userId);
+  } else {
+    conditions.push(`user_id IS NULL`);
+  }
   if (filter.leadId) {
     conditions.push(`lead_id = $${idx++}`);
     values.push(filter.leadId);
@@ -87,6 +123,12 @@ export const countConversations = async (filter: Omit<ListConversationsFilter, '
   const conditions: string[] = [];
   const values: any[] = [];
   let idx = 1;
+  if (filter.scope.kind === 'user') {
+    conditions.push(`user_id = $${idx++}`);
+    values.push(filter.scope.userId);
+  } else {
+    conditions.push(`user_id IS NULL`);
+  }
   if (filter.leadId) {
     conditions.push(`lead_id = $${idx++}`);
     values.push(filter.leadId);

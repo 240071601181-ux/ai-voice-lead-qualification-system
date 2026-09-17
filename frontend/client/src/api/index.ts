@@ -22,7 +22,7 @@ export type * from "./types";
 export * as leadsApi from "./services/leads";
 export * as callsApi from "./services/calls";
 export * as conversationsApi from "./services/conversations";
-export { getChatToken, setChatToken, clearChatToken, getChatAuthHeader } from "./chatToken";
+export * as sessionApi from "./session";
 export * as agentApi from "./services/agent";
 export * as leadsHooks from "./hooks/useLeads";
 export * as callsHooks from "./hooks/useCalls";

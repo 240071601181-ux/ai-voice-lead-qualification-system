@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { useLocation, useParams } from "wouter";
-import { AlertTriangle, CheckCircle2, KeyRound } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { AIChatBox } from "@/components/AIChatBox";
 import { Button, Card, TierBadge } from "@/components/app/ui";
-import { ChatTokenDialog } from "@/components/app/ChatTokenDialog";
 import { MeetingPanel } from "@/components/app/MeetingPanel";
 import {
   conversationErrorCopy,
@@ -12,7 +11,6 @@ import {
   toLogisticsStateRows,
   toVisibleMessages,
 } from "@/components/app/conversationView";
-import { getChatToken, handleChatUnauthorizedOnce } from "@/api/chatToken";
 import { ApiError } from "@/api/errors";
 import {
   useAbandonConversationMutation,
@@ -135,9 +133,7 @@ function ConversationDetailPage() {
   const id = params.id;
   const [, navigate] = useLocation();
   const [sendError, setSendError] = useState<string | null>(null);
-  const [tokenOpen, setTokenOpen] = useState(false);
-  // Bumped when chat-auth state changes so the Connect action re-renders.
-  const [, setAuthTick] = useState(0);
+  const [sendUnauthorized, setSendUnauthorized] = useState(false);
 
   const detail = useConversationQuery(id);
   const messages = useConversationMessagesQuery(id, 100);
@@ -162,14 +158,12 @@ function ConversationDetailPage() {
 
   const handleSend = (content: string) => {
     setSendError(null);
+    setSendUnauthorized(false);
     send.mutate(content, {
       onError: (error) => {
-        // Single-shot: a rejected saved token is cleared once (no loop) and
-        // the header flips back to the Connect action below.
-        if (error instanceof ApiError && error.kind === "unauthorized") {
-          handleChatUnauthorizedOnce();
-          setAuthTick((tick) => tick + 1);
-        }
+        // Session auth refreshes once-and-retries inside the service; a
+        // surviving 401 means signed-out — offer Sign in, never a token modal.
+        setSendUnauthorized(error instanceof ApiError && error.kind === "unauthorized");
         setSendError(conversationErrorCopy(error));
       },
     });
@@ -189,13 +183,6 @@ function ConversationDetailPage() {
                 ? `${conversation.channel} · ${conversation.status} · ${detail.data?.messageCount ?? 0} messages`
                 : "Loading conversation…"}
             </p>
-          </div>
-          <div className="heading-actions">
-            {!getChatToken() ? (
-              <Button icon={KeyRound} variant="secondary" onClick={() => setTokenOpen(true)}>
-                Connect chat
-              </Button>
-            ) : null}
           </div>
         </div>
         {detail.isPending ? (
@@ -224,7 +211,13 @@ function ConversationDetailPage() {
             {sendError ? (
               <p className="panel-error" role="alert">
                 <AlertTriangle size={14} /> {sendError}{" "}
-                <span className="panel-note">Your text is kept above — resend when ready.</span>
+                {sendUnauthorized ? (
+                  <button className="link-btn" onClick={() => navigate("/login")}>
+                    Sign in
+                  </button>
+                ) : (
+                  <span className="panel-note">Your text is kept above — resend when ready.</span>
+                )}
               </p>
             ) : null}
             {composerDisabled && status !== "active" ? (
@@ -305,7 +298,6 @@ function ConversationDetailPage() {
         <LogisticsStatePanel conversationId={id} />
         <MeetingPanel conversationId={id} />
       </aside>
-      <ChatTokenDialog open={tokenOpen} onOpenChange={setTokenOpen} onConnected={() => { setAuthTick((tick) => tick + 1); void detail.refetch(); void messages.refetch(); }} />
     </div>
   );
 }

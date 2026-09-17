@@ -1,5 +1,6 @@
 /**
  * Phase 9 — Conversation API service.
+ * Phase 11 — authenticated via the backend session (no pasted tokens).
  *
  * Backend routes (existing Express backend, DO NOT MODIFY):
  *   POST /api/v1/conversations                          { leadId?, channel? }
@@ -15,13 +16,12 @@
  *   GET  /api/v1/conversations/:id/calendar/availability (start/end/timezone)
  *   POST /api/v1/conversations/:id/calendar/book         (start/end/...)
  *
- * Auth: these routes require the CHAT_JWT Bearer token (see
- * `api/chatToken.ts`), which is unrelated to the platform session cookie.
- * Every function below attaches it via per-request headers; the shared
- * httpClient still supplies the session cookie as before.
+ * Auth: the short-lived session access token (see `api/session.ts`),
+ * refreshed once-and-retried via `authedRequest`. The shared httpClient
+ * still supplies the session cookie as before.
  */
 
-import { getChatAuthHeader } from "../chatToken";
+import { authedRequest } from "../session";
 import { httpClient } from "../httpClient";
 import type {
   BookConversationMeetingInput,
@@ -39,33 +39,33 @@ import type {
   SendConversationMessageResult,
 } from "../types";
 
-function authHeaders(): Record<string, string> {
-  return getChatAuthHeader();
+function authed<T>(fn: (headers: Record<string, string>) => Promise<T>): Promise<T> {
+  return authedRequest(fn);
 }
 
 export function createConversation(data: CreateConversationInput = {}): Promise<Conversation> {
-  return httpClient.post<Conversation>("/api/v1/conversations", data, {
-    headers: authHeaders(),
-  });
+  return authed((headers) => httpClient.post<Conversation>("/api/v1/conversations", data, { headers }));
 }
 
 export function listConversations(params: ListConversationsInput = {}): Promise<ConversationListResult> {
-  return httpClient.get<ConversationListResult>("/api/v1/conversations", {
-    headers: authHeaders(),
-    query: {
-      leadId: params.leadId || undefined,
-      status: params.status || undefined,
-      channel: params.channel || undefined,
-      page: params.page,
-      limit: params.limit,
-    },
-  });
+  return authed((headers) =>
+    httpClient.get<ConversationListResult>("/api/v1/conversations", {
+      headers,
+      query: {
+        leadId: params.leadId || undefined,
+        status: params.status || undefined,
+        channel: params.channel || undefined,
+        page: params.page,
+        limit: params.limit,
+      },
+    })
+  );
 }
 
 export function getConversation(id: string): Promise<ConversationDetail> {
-  return httpClient.get<ConversationDetail>(`/api/v1/conversations/${encodeURIComponent(id)}`, {
-    headers: authHeaders(),
-  });
+  return authed((headers) =>
+    httpClient.get<ConversationDetail>(`/api/v1/conversations/${encodeURIComponent(id)}`, { headers })
+  );
 }
 
 export function getConversationMessages(
@@ -73,9 +73,11 @@ export function getConversationMessages(
   page = 1,
   limit = 50
 ): Promise<ConversationMessageListResult> {
-  return httpClient.get<ConversationMessageListResult>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/messages`,
-    { headers: authHeaders(), query: { page, limit } }
+  return authed((headers) =>
+    httpClient.get<ConversationMessageListResult>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/messages`,
+      { headers, query: { page, limit } }
+    )
   );
 }
 
@@ -83,48 +85,60 @@ export function sendConversationMessage(
   id: string,
   content: string
 ): Promise<SendConversationMessageResult> {
-  return httpClient.post<SendConversationMessageResult>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/messages`,
-    { content },
-    { headers: authHeaders(), timeoutMs: 60000 }
+  return authed((headers) =>
+    httpClient.post<SendConversationMessageResult>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/messages`,
+      { content },
+      { headers, timeoutMs: 60000 }
+    )
   );
 }
 
 export function completeConversation(id: string): Promise<Conversation> {
-  return httpClient.post<Conversation>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/complete`,
-    {},
-    { headers: authHeaders() }
+  return authed((headers) =>
+    httpClient.post<Conversation>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/complete`,
+      {},
+      { headers }
+    )
   );
 }
 
 export function abandonConversation(id: string): Promise<Conversation> {
-  return httpClient.post<Conversation>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/abandon`,
-    {},
-    { headers: authHeaders() }
+  return authed((headers) =>
+    httpClient.post<Conversation>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/abandon`,
+      {},
+      { headers }
+    )
   );
 }
 
 export function getConversationState(id: string): Promise<ConversationState | null> {
-  return httpClient.get<ConversationState | null>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/state`,
-    { headers: authHeaders() }
+  return authed((headers) =>
+    httpClient.get<ConversationState | null>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/state`,
+      { headers }
+    )
   );
 }
 
 export function qualifyConversation(id: string): Promise<Qualification> {
-  return httpClient.post<Qualification>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/qualification`,
-    {},
-    { headers: authHeaders() }
+  return authed((headers) =>
+    httpClient.post<Qualification>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/qualification`,
+      {},
+      { headers }
+    )
   );
 }
 
 export function getConversationQualification(id: string): Promise<Qualification> {
-  return httpClient.get<Qualification>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/qualification`,
-    { headers: authHeaders() }
+  return authed((headers) =>
+    httpClient.get<Qualification>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/qualification`,
+      { headers }
+    )
   );
 }
 
@@ -132,16 +146,18 @@ export function getConversationAvailability(
   id: string,
   query: ConversationAvailabilityQuery
 ): Promise<ConversationAvailabilityResult> {
-  return httpClient.get<ConversationAvailabilityResult>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/calendar/availability`,
-    {
-      headers: authHeaders(),
-      query: {
-        start: query.start,
-        end: query.end,
-        timezone: query.timezone ?? undefined,
-      },
-    }
+  return authed((headers) =>
+    httpClient.get<ConversationAvailabilityResult>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/calendar/availability`,
+      {
+        headers,
+        query: {
+          start: query.start,
+          end: query.end,
+          timezone: query.timezone ?? undefined,
+        },
+      }
+    )
   );
 }
 
@@ -149,9 +165,11 @@ export function bookConversationMeeting(
   id: string,
   data: BookConversationMeetingInput
 ): Promise<ConversationBooking> {
-  return httpClient.post<ConversationBooking>(
-    `/api/v1/conversations/${encodeURIComponent(id)}/calendar/book`,
-    data,
-    { headers: authHeaders() }
+  return authed((headers) =>
+    httpClient.post<ConversationBooking>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/calendar/book`,
+      data,
+      { headers }
+    )
   );
 }

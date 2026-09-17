@@ -1,5 +1,5 @@
 import { NextFunction, Response } from 'express';
-import { ChatAuthRequest } from '../middleware/conversationAuth';
+import { ConversationRequest } from '../middleware/conversationIdentity';
 import { isConversationChannel, isConversationStatus } from '../agent/conversation';
 import {
   ConversationMessage,
@@ -44,7 +44,7 @@ const toLlmMessages = (rows: ConversationMessage[]): LlmMessage[] =>
   rows.map((m) => ({ role: m.role, content: m.content }));
 
 export const createConversationHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
@@ -84,6 +84,9 @@ export const createConversationHandler = async (
     const conversation = await conversationService.createConversation({
       leadId: leadId ?? null,
       channel: resolvedChannel,
+      // Phase 11: ownership. Authenticated users own their rows; the legacy
+      // dev fallback creates unowned rows (isolated, never shared).
+      userId: req.auth?.kind === 'user' ? req.auth.user.id : null,
     });
     return res.status(201).json({ success: true, data: conversation });
   } catch (err) {
@@ -92,7 +95,7 @@ export const createConversationHandler = async (
 };
 
 export const listConversationsHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
@@ -113,10 +116,17 @@ export const listConversationsHandler = async (
     const page = parsePositiveInt(req.query.page, 1);
     const limit = Math.min(parsePositiveInt(req.query.limit, 20), 100);
     const offset = (page - 1) * limit;
+    // Phase 11: ownership isolation. Authenticated users list only their own
+    // rows; legacy tokens list only unowned rows. Never cross boundaries.
+    const scope =
+      req.auth?.kind === 'user'
+        ? { kind: 'user' as const, userId: req.auth.user.id }
+        : { kind: 'legacy' as const };
     const filter = {
       leadId: leadId || undefined,
       status: status as 'active' | 'completed' | 'abandoned' | undefined,
       channel: channel as 'web' | 'whatsapp' | 'legacy_voice' | undefined,
+      scope,
     };
     const [conversations, total] = await Promise.all([
       repoListConversations({ ...filter, limit, offset }),
@@ -129,18 +139,14 @@ export const listConversationsHandler = async (
 };
 
 export const getConversationHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const conversation = await conversationService.getConversation(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Conversation not found', code: 404 },
-      });
-    }
+    // Ownership pre-checked by requireOwnedConversation: 404 when the
+    // conversation is missing or belongs to someone else.
+    const conversation = req.conversation!;
     const [lead, messageCount] = await Promise.all([
       conversation.lead_id ? leadRepository.findById(conversation.lead_id) : Promise.resolve(null),
       conversationMessageService.count(conversation.id),
@@ -160,18 +166,14 @@ export const getConversationHandler = async (
 };
 
 export const listConversationMessagesHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const conversation = await conversationService.getConversation(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Conversation not found', code: 404 },
-      });
-    }
+    // Ownership pre-checked by requireOwnedConversation: 404 when the
+    // conversation is missing or belongs to someone else.
+    const conversation = req.conversation!;
     const page = parsePositiveInt(req.query.page, 1);
     const limit = Math.min(parsePositiveInt(req.query.limit, 20), 100);
     const offset = (page - 1) * limit;
@@ -186,7 +188,7 @@ export const listConversationMessagesHandler = async (
 };
 
 export const postConversationMessageHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
@@ -208,13 +210,9 @@ export const postConversationMessageHandler = async (
         },
       });
     }
-    const conversation = await conversationService.getConversation(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Conversation not found', code: 404 },
-      });
-    }
+    // Ownership pre-checked by requireOwnedConversation: 404 when the
+    // conversation is missing or belongs to someone else.
+    const conversation = req.conversation!;
     if (conversation.status !== 'active') {
       return res.status(409).json({
         success: false,
@@ -341,7 +339,7 @@ export const postConversationMessageHandler = async (
 };
 
 const endConversationHandler = (status: 'completed' | 'abandoned') => {
-  return async (req: ChatAuthRequest, res: Response, next: NextFunction) => {
+  return async (req: ConversationRequest, res: Response, next: NextFunction) => {
     try {
       const conversation = await conversationService.getConversation(req.params.id);
       if (!conversation) {
@@ -382,18 +380,14 @@ const endConversationHandler = (status: 'completed' | 'abandoned') => {
  * on conversation_id (idempotent). Errors carry err.status (404/422).
  */
 export const postConversationQualificationHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const conversation = await conversationService.getConversation(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Conversation not found', code: 404 },
-      });
-    }
+    // Ownership pre-checked by requireOwnedConversation: 404 when the
+    // conversation is missing or belongs to someone else.
+    const conversation = req.conversation!;
     const qualification = await qualifyConversation(conversation.id);
     return res.status(201).json({ success: true, data: qualification });
   } catch (err) {
@@ -403,18 +397,14 @@ export const postConversationQualificationHandler = async (
 
 /** Phase 9: read the persisted structured logistics state for the UI panel. */
 export const getConversationStateHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const conversation = await conversationService.getConversation(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Conversation not found', code: 404 },
-      });
-    }
+    // Ownership pre-checked by requireOwnedConversation: 404 when the
+    // conversation is missing or belongs to someone else.
+    const conversation = req.conversation!;
     const state = await findConversationStateByConversationId(conversation.id);
     return res.json({ success: true, data: state });
   } catch (err) {
@@ -424,17 +414,13 @@ export const getConversationStateHandler = async (
 
 /** Read the persisted conversation qualification, if any. */
 export const getConversationQualificationHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {  try {
-    const conversation = await conversationService.getConversation(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Conversation not found', code: 404 },
-      });
-    }
+    // Ownership pre-checked by requireOwnedConversation: 404 when the
+    // conversation is missing or belongs to someone else.
+    const conversation = req.conversation!;
     const qualification = await getQualificationByConversationId(conversation.id);
     if (!qualification) {
       return res.status(404).json({

@@ -55,7 +55,7 @@ export function conversationErrorCopy(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.kind) {
       case "unauthorized":
-        return "Chat is not connected. Connect with a valid token and try again.";
+        return "You are signed out. Please sign in again.";
       case "forbidden":
         return "You don't have permission to perform this action.";
       case "not-found":

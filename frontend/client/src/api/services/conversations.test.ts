@@ -1,13 +1,16 @@
 /**
  * Phase 9 — Conversation API service tests.
+ * Phase 11 — authenticated via the backend session (no pasted tokens).
  *
  * Mocks the network boundary (global fetch) only: asserts request paths,
- * methods, bodies, the CHAT_JWT Authorization header, envelope unwrapping,
- * and user-safe error kinds. No business logic is mocked.
+ * methods, bodies, the session Authorization header (with refresh-once
+ * retry), envelope unwrapping, and user-safe error kinds.
+ * No business logic is mocked.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/errors";
 import { frontendEnv } from "@/api/env";
+import { resetSessionForTests } from "@/api/session";
 import {
   abandonConversation,
   bookConversationMeeting,
@@ -35,32 +38,41 @@ function mockFetchOnce(status: number, body: unknown) {
   return spy;
 }
 
-describe("conversations API service", () => {
-  const mem = new Map<string, string>();
+const loginPayload = (accessToken = "access-1") => ({
+  success: true,
+  data: {
+    user: { id: "user-1", email: "a@example.com" },
+    accessToken,
+    accessExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+  },
+});
 
+describe("conversations API service", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
-    mem.clear();
-    vi.stubGlobal("sessionStorage", {
-      getItem: (key: string) => (mem.has(key) ? mem.get(key)! : null),
-      setItem: (key: string, value: string) => { mem.set(key, String(value)); },
-      removeItem: (key: string) => { mem.delete(key); },
-      clear: () => { mem.clear(); },
-    });
-    vi.stubEnv("VITE_API_BASE_URL", "http://localhost:3000");
-    // frontendEnv is captured at import time, so point it at the test backend directly.
     frontendEnv.apiBaseUrl = "http://localhost:3000";
+    resetSessionForTests();
   });
+
+  /** Seed a logged-in session (the login response is the only token source). */
+  async function loginAs(fetchSpy: ReturnType<typeof vi.fn>, accessToken = "access-1") {
+    const { login } = await import("@/api/session");
+    fetchSpy.mockResolvedValueOnce(jsonResponse(200, loginPayload(accessToken)));
+    await login({ email: "a@example.com", password: "password-123" });
+  }
 
   it("lists conversations with filters and pagination", async () => {
     const spy = mockFetchOnce(200, {
       success: true,
       data: { conversations: [], total: 0, page: 2, limit: 20 },
     });
+    await loginAs(spy);
     const result = await listConversations({ status: "active", channel: "web", page: 2, limit: 20 });
     expect(result.total).toBe(0);
-    const url = String(spy.mock.calls[0][0]);
-    expect(spy.mock.calls[0][1].method).toBe("GET");
+    const listCall = spy.mock.calls[1];
+    const url = String(listCall[0]);
+    expect(listCall[1].method).toBe("GET");
+    expect(listCall[1].headers.Authorization).toBe("Bearer access-1");
     expect(url).toContain("/api/v1/conversations?");
     expect(url).toContain("status=active");
     expect(url).toContain("channel=web");
@@ -72,20 +84,58 @@ describe("conversations API service", () => {
       success: true,
       data: { id: "conv-1", channel: "web", status: "active" },
     });
+    await loginAs(spy);
     const created = await createConversation({ leadId: "lead-1", channel: "web" });
     expect(created.id).toBe("conv-1");
-    expect(spy.mock.calls[0][1].method).toBe("POST");
-    expect(JSON.parse(String(spy.mock.calls[0][1].body))).toEqual({
+    expect(spy.mock.calls[1][1].method).toBe("POST");
+    expect(JSON.parse(String(spy.mock.calls[1][1].body))).toEqual({
       leadId: "lead-1",
       channel: "web",
     });
   });
 
-  it("sends the saved chat token as the Authorization header", async () => {
-    mem.set("chat-jwt", "tok-123");
-    const spy = mockFetchOnce(200, { success: true, data: { conversations: [], total: 0, page: 1, limit: 20 } });
-    await listConversations({});
-    expect(spy.mock.calls[0][1].headers.Authorization).toBe("Bearer tok-123");
+  it("refreshes once and retries the original request after a 401", async () => {
+    const spy = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const target = String(url instanceof Request ? url.url : url);
+      if (target.endsWith("/api/v1/auth/login")) {
+        return jsonResponse(200, loginPayload("access-1"));
+      }
+      if (target.endsWith("/api/v1/auth/refresh")) {
+        return jsonResponse(200, loginPayload("access-2"));
+      }
+      const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+      if (auth === "Bearer access-1") {
+        return jsonResponse(401, { success: false, error: { message: "stale", code: 401 } });
+      }
+      return jsonResponse(
+        200,
+        { success: true, data: { conversations: [], total: 0, page: 1, limit: 20 } }
+      );
+    });
+    vi.stubGlobal("fetch", spy);
+    await loginAs(spy);
+    const result = await listConversations({});
+    expect(result.total).toBe(0);
+    // login + stale attempt + refresh + retry: exactly one refresh, no loop.
+    expect(spy.mock.calls.filter((c) => String(c[0]).endsWith("/api/v1/auth/refresh"))).toHaveLength(1);
+    expect(spy).toHaveBeenCalledTimes(4);
+    const retryAuth = (spy.mock.calls[3][1]?.headers as Record<string, string>)?.Authorization;
+    expect(retryAuth).toBe("Bearer access-2");
+  });
+
+  it("surfaces 401 without looping when refresh fails", async () => {
+    const spy = vi.fn(async (url: string | URL | Request) => {
+      const target = String(url instanceof Request ? url.url : url);
+      if (target.endsWith("/api/v1/auth/refresh")) {
+        return jsonResponse(401, { success: false, error: { message: "expired", code: 401 } });
+      }
+      return jsonResponse(401, { success: false, error: { message: "expired", code: 401 } });
+    });
+    vi.stubGlobal("fetch", spy);
+    const error = await listConversations({}).catch((e) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).kind).toBe("unauthorized");
+    expect(spy.mock.calls.filter((c) => String(c[0]).endsWith("/api/v1/auth/refresh"))).toHaveLength(1);
   });
 
   it("sends a message and unwraps the persisted user/assistant pair", async () => {
@@ -98,14 +148,16 @@ describe("conversations API service", () => {
         qualification: null,
       },
     });
+    await loginAs(spy);
     const result = await sendConversationMessage("conv-1", "Hi");
     expect(result.userMessage.role).toBe("user");
     expect(result.assistantMessage.role).toBe("assistant");
-    expect(JSON.parse(String(spy.mock.calls[0][1].body))).toEqual({ content: "Hi" });
+    expect(JSON.parse(String(spy.mock.calls[1][1].body))).toEqual({ content: "Hi" });
   });
 
   it("fetches detail, messages, state, and qualification by id", async () => {
-    mockFetchOnce(200, { success: true, data: { conversation: { id: "conv-1" } } });
+    const spy = mockFetchOnce(200, { success: true, data: { conversation: { id: "conv-1" } } });
+    await loginAs(spy);
     await getConversation("conv-1");
     mockFetchOnce(200, { success: true, data: { messages: [], total: 0, page: 1, limit: 50 } });
     const messages = await getConversationMessages("conv-1", 1, 50);
@@ -118,7 +170,8 @@ describe("conversations API service", () => {
   });
 
   it("completes, abandons, and manually qualifies", async () => {
-    mockFetchOnce(200, { success: true, data: { id: "conv-1", status: "completed" } });
+    const spy = mockFetchOnce(200, { success: true, data: { id: "conv-1", status: "completed" } });
+    await loginAs(spy);
     await expect(completeConversation("conv-1")).resolves.toMatchObject({ status: "completed" });
     mockFetchOnce(200, { success: true, data: { id: "conv-1", status: "abandoned" } });
     await expect(abandonConversation("conv-1")).resolves.toMatchObject({ status: "abandoned" });
@@ -127,7 +180,8 @@ describe("conversations API service", () => {
   });
 
   it("checks availability and books meetings with explicit slots", async () => {
-    mockFetchOnce(200, { success: true, data: { available: true } });
+    const spy = mockFetchOnce(200, { success: true, data: { available: true } });
+    await loginAs(spy);
     await expect(
       getConversationAvailability("conv-1", { start: "2026-09-20T10:00:00Z", end: "2026-09-20T10:30:00Z", timezone: "Asia/Kolkata" })
     ).resolves.toEqual({ available: true });
@@ -141,9 +195,10 @@ describe("conversations API service", () => {
     expect(booking.meet_url).toContain("https://meet.google.com/");
   });
 
-  it("maps backend failures to user-safe kinds (401/404/409/429/500)", async () => {
+  it("maps backend failures to user-safe kinds (404/409/429/500)", async () => {
+    const spy = mockFetchOnce(200, loginPayload());
+    await loginAs(spy);
     const cases: Array<[number, string]> = [
-      [401, "unauthorized"],
       [404, "not-found"],
       [409, "conflict"],
       [429, "rate-limited"],
@@ -154,25 +209,16 @@ describe("conversations API service", () => {
       const error = await sendConversationMessage("conv-1", "Hi").catch((e) => e);
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).kind).toBe(kind);
-      // Backend internals never surface beyond the public message.
       expect(String((error as ApiError).message)).not.toContain("SELECT");
     }
   });
 
   it("throws a network error when fetch rejects", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("down"); }));
+    const spy = vi.fn(async () => { throw new TypeError("down"); });
+    vi.stubGlobal("fetch", spy);
+    await loginAs(spy).catch(() => undefined);
     const error = await listConversations({}).catch((e) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).kind).toBe("network");
-  });
-
-  it("clears a rejected token once instead of looping, then prompts connect", async () => {
-    const { handleChatUnauthorizedOnce } = await import("@/api/chatToken");
-    mem.set("chat-jwt", "tok-stale");
-    mockFetchOnce(401, { success: false, error: { message: "Invalid or expired token", code: 401 } });
-    const error = await listConversations({}).catch((e) => e);
-    expect((error as ApiError).kind).toBe("unauthorized");
-    expect(handleChatUnauthorizedOnce()).toBe(true);
-    expect(handleChatUnauthorizedOnce()).toBe(false);
   });
 });

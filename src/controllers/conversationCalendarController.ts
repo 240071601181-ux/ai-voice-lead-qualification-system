@@ -10,13 +10,12 @@
  * is ignored — never trusted, never used.
  */
 import { Response, NextFunction } from 'express';
-import { ChatAuthRequest } from '../middleware/conversationAuth';
+import { ConversationRequest } from '../middleware/conversationIdentity';
 import {
   checkCalendarAvailability,
   requestCalendarBooking,
 } from '../services/calendar/calendarBookingService';
 import { enqueueN8nEvent } from '../services/n8n/n8nEmitter';
-import { conversationService } from '../services/conversationService';
 import { CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE } from './calendarController';
 import { logger } from '../utils/logger';
 
@@ -30,18 +29,14 @@ const isNotConfigured = (skipped: string | undefined): boolean =>
 const isSchedulable = (status: string): boolean => status === 'active' || status === 'completed';
 
 export const getConversationAvailabilityHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const conversation = await conversationService.getConversation(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Conversation not found', code: 404 },
-      });
-    }
+    // Ownership pre-checked by requireOwnedConversation: 404 when the
+    // conversation is missing or belongs to someone else.
+    const conversation = req.conversation!;
     if (!isSchedulable(conversation.status)) {
       return res.status(409).json({
         success: false,
@@ -87,18 +82,14 @@ export const getConversationAvailabilityHandler = async (
 };
 
 export const postConversationBookingHandler = async (
-  req: ChatAuthRequest,
+  req: ConversationRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const conversation = await conversationService.getConversation(req.params.id);
-    if (!conversation) {
-      return res.status(404).json({
-        success: false,
-        error: { message: 'Conversation not found', code: 404 },
-      });
-    }
+    // Ownership pre-checked by requireOwnedConversation: 404 when the
+    // conversation is missing or belongs to someone else.
+    const conversation = req.conversation!;
     if (!isSchedulable(conversation.status)) {
       return res.status(409).json({
         success: false,

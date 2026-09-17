@@ -1,16 +1,24 @@
 import { Redirect } from "wouter";
-import { isDemoAuthenticated } from "./demoAuth";
+import { useSessionQuery } from "@/api/hooks/useSession";
 
 /**
- * UI-only route protection (Phase 14C-AUTH-FIX).
+ * Phase 11 — real route protection over the backend session.
  *
- * Previously a passthrough, so logged-out users never saw /login. Now
- * unauthenticated visits to app routes bounce to /login. The session is the
- * demo session in `./demoAuth` — no backend involved. When backend auth
- * lands, enforce the real session here without touching routes.tsx.
+ * `useSessionQuery` restores once (refresh cookie → access token → user).
+ * While restoring, routes render a loading state — never a flash of login.
+ * Unauthenticated visits bounce to /login. The UI never claims
+ * authentication the backend cannot verify (no demo session anymore).
  */
 export function RequireAuth({ children }: { children: React.ReactNode }) {
-  if (!isDemoAuthenticated()) {
+  const session = useSessionQuery();
+  if (session.isPending) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-sm text-muted-foreground">Checking your session…</p>
+      </div>
+    );
+  }
+  if (!session.data) {
     return <Redirect to="/login" />;
   }
   return <>{children}</>;

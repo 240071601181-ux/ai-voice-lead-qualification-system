@@ -4,20 +4,21 @@ import { Check, LogOut, MoreHorizontal } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button, Card } from "@/components/app/ui";
 import { useToast } from "@/layouts/AppLayout";
-import { demoLogout } from "@/app/demoAuth";
+import { useLogoutMutation, useSessionQuery } from "@/api/hooks/useSession";
 
-/** Demo-only profile. Save shows a toast; no backend call. */
+/** Profile. Save shows a toast; sign-out revokes the backend session. */
 export default function ProfilePage() {
   const { notify } = useToast();
   const [, navigate] = useLocation();
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const session = useSessionQuery();
+  const logout = useLogoutMutation();
 
   const handleLogout = () => {
     setLogoutOpen(false);
-    // Phase 14C-AUTH-FIX: actually clear the demo session so refresh cannot
-    // restore it, then land on /login.
-    demoLogout();
-    navigate("/login");
+    logout.mutate(undefined, {
+      onSettled: () => navigate("/login"),
+    });
   };
   return (
     <>
@@ -29,10 +30,12 @@ export default function ProfilePage() {
       </div>
       <Card className="lead-hero">
         <div className="lead-hero-main">
-          <span className="avatar" style={{ width: 48, height: 48, fontSize: 14 }}>MS</span>
+          <span className="avatar" style={{ width: 48, height: 48, fontSize: 14 }}>
+            {(session.data?.name ?? session.data?.email ?? "U").slice(0, 2).toUpperCase()}
+          </span>
           <div>
-            <div className="hero-name-row"><h2>Maya Singh</h2></div>
-            <p>Admin <span>•</span> Acme Cargo <span>•</span> maya@acmecargo.in</p>
+            <div className="hero-name-row"><h2>{session.data?.name || session.data?.email || "Signed in"}</h2></div>
+            <p>{session.data?.email ?? "…"}</p>
           </div>
         </div>
         <div className="hero-actions">

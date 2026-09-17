@@ -70,47 +70,22 @@ available → "Book meeting" → persisted booking + Meet URL render. Nothing is
 inferred from `required_date`; nothing auto-books. Errors reuse the calendar
 truthful-message mapping (503 → not-configured copy).
 
-## Authentication (Phase 10)
+## Authentication (Phase 11 — real backend sessions)
 
-**Architecture (verified, not assumed).** The Express backend has no user
-store and no login session: every non-conversation route is unauthenticated,
-and conversation routes verify only the `CHAT_JWT_SECRET`-signed Bearer
-token (`sub`/`iat`/`exp`, timing-safe compare, fail-closed 401). The
-frontend shell session is UI-only demo state (`localStorage` flag, no
-credential verification) plus the Manus platform cookie for the frontend's
-own dev server — neither is verifiable by the Express backend. There is
-deliberately **no** `POST /auth/token` issuance endpoint: with nothing to
-bind issuance to, it would mint tokens for anyone (security theater), so it
-was not built.
+The temporary "Connect chat" paste-token workflow is removed (no modal, no
+`sessionStorage` token, no token instructions in the normal flow).
 
-**Dev flow (safest compatible).** An operator mints a short-lived token with
-backend access and pastes it once into "Connect chat"; the UI validates JWT
-shape and pre-checks `exp` before saving, stores it in `sessionStorage`
-(tab-only, cleared on logout), and sends it solely as the `Authorization`
-header on conversation calls. Nothing is hardcoded and no secret touches
-`VITE_*` or the bundle (verified by test + `check`).
-
-**401 handling (no loops).** A rejected saved token is cleared exactly once
-(`handleChatUnauthorizedOnce`) and the UI flips to the connect state;
-requests without a token show the connect hint immediately. Conversation
-screens never show the platform "session expired" copy for chat-auth
-failures: 401 → connect hint, 404 → not-found, 409 → inactive, 429 →
-rate-limit, 500 → generation-failure copy. Real platform-session expiry
-still routes to Sign In via the existing shell flow.
-
-**Qualification/search hardening (Phase 10).** New minimal backend reads
-(`GET /api/v1/qualifications`, `GET /api/v1/qualifications/:id`) back the
-qualifications list/detail and global-search qualification group — the
-detail page no longer falls back to demo fixtures, and conversation-anchored
-rows (no `callId`) resolve directly. The Calls page keeps its demo rows but
-is now badged DEMO DATA (no call-list API exists).
-
-**Production limitation (explicit).** Single-tenant, no persisted
-user/workspace ownership: any valid chat token accesses any conversation.
-Shipping beyond dev requires a backend login-bound mint endpoint
-(`POST /api/v1/conversations/auth/token` behind a real session, short
-expiry, `sub` = authenticated user) plus per-user conversation ownership —
-both open items, intentionally not faked here.
+- Login/signup/logout run against `POST /api/v1/auth/*` with real
+  bcrypt-verified sessions (see `docs/authentication.md`); route guards
+  enforce the backend-verified session, and logout revokes server-side.
+- The access token lives in module memory only; reload restores via one
+  refresh attempt, and conversation calls refresh-once-and-retry (no loops).
+- A surviving 401 means signed-out: the UI offers Sign in (never a token
+  modal, never the platform "session expired" copy for chat-auth failures).
+- Ownership is server-enforced per user (resource-hiding 404s); the UI shows
+  only the caller's rows and drops cached rows on logout.
+- Remaining limits: single-tenant leads, no per-workspace tenancy, no
+  password reset/SSO/email verification (those screens say so truthfully).
 
 ## Tests
 

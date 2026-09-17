@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, ChevronRight, KeyRound, MessageSquarePlus, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquarePlus, Search } from "lucide-react";
 import { Button, Card, TierBadge } from "@/components/app/ui";
 import { LeadPicker } from "@/components/app/LeadPicker";
-import { ChatTokenDialog } from "@/components/app/ChatTokenDialog";
 import { NO_CONVERSATIONS_COPY, conversationErrorCopy } from "@/components/app/conversationView";
-import { getChatToken, handleChatUnauthorizedOnce } from "@/api/chatToken";
 import { ApiError } from "@/api/errors";
 import { useConversationsQuery, useCreateConversationMutation } from "@/api/hooks/useConversations";
 import { useConversationQualificationQuery } from "@/api/hooks/useConversations";
@@ -46,9 +44,7 @@ function ConversationsPage() {
   const [status, setStatus] = useState<"" | "active" | "completed" | "abandoned">("");
   const [page, setPage] = useState(1);
   const [newOpen, setNewOpen] = useState(false);
-  const [tokenOpen, setTokenOpen] = useState(false);
   const [leadId, setLeadId] = useState<string | null>(null);
-  const [connected, setConnected] = useState(() => getChatToken() !== null);
 
   const list = useConversationsQuery({
     status: status || undefined,
@@ -88,15 +84,9 @@ function ConversationsPage() {
     );
   };
 
-  // Truthful 401 handling: a rejected saved token is cleared once (no retry
-  // loop) and the UI flips to the connect state; other failures show the
-  // safe copy with a plain retry. Never "session expired" for chat-auth.
+  // Truthful 401 handling: the session is backend-verified, so an
+  // unauthorized list means signed-out — offer Sign in, never a token modal.
   const listUnauthorized = list.isError && list.error instanceof ApiError && list.error.kind === "unauthorized";
-  const connectForList = () => {
-    handleChatUnauthorizedOnce();
-    setConnected(getChatToken() !== null);
-    setTokenOpen(true);
-  };
 
   return (
     <>
@@ -105,13 +95,6 @@ function ConversationsPage() {
           <p className="lede">Real-time text conversations with the logistics assistant.</p>
         </div>
         <div className="heading-actions">
-          <Button
-            icon={KeyRound}
-            variant="secondary"
-            onClick={() => setTokenOpen(true)}
-          >
-            {connected ? "Chat connected" : "Connect chat"}
-          </Button>
           <Button icon={MessageSquarePlus} variant="primary" onClick={() => setNewOpen(true)}>
             New Conversation
           </Button>
@@ -157,7 +140,7 @@ function ConversationsPage() {
               {list.isPending ? (
                 <tr><td colSpan={5}><div className="empty-state"><b>Loading conversations…</b></div></td></tr>
               ) : list.isError ? (
-                <tr><td colSpan={5}><div className="empty-state"><b>Couldn&apos;t load conversations</b><span>{conversationErrorCopy(list.error)}</span>{listUnauthorized ? <Button variant="secondary" onClick={connectForList}>Connect chat</Button> : <Button variant="secondary" onClick={() => { void list.refetch(); }}>Retry</Button>}</div></td></tr>
+                <tr><td colSpan={5}><div className="empty-state"><b>Couldn&apos;t load conversations</b><span>{conversationErrorCopy(list.error)}</span>{listUnauthorized ? <Button variant="secondary" onClick={() => navigate("/login")}>Sign in</Button> : <Button variant="secondary" onClick={() => { void list.refetch(); }}>Retry</Button>}</div></td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={5}><div className="empty-state"><b>{NO_CONVERSATIONS_COPY}</b></div></td></tr>
               ) : (
@@ -206,15 +189,6 @@ function ConversationsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <ChatTokenDialog
-        open={tokenOpen}
-        onOpenChange={setTokenOpen}
-        onConnected={() => {
-          setConnected(getChatToken() !== null);
-          void list.refetch();
-        }}
-      />
     </>
   );
 }
