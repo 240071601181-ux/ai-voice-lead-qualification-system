@@ -249,6 +249,8 @@ export interface ChatConfig {
   maxContextMessages: number;
   /** Max user message length (characters). */
   maxMessageLength: number;
+  /** Max LLM→tool→LLM rounds executed per text user message. */
+  maxToolRounds: number;
 }
 
 export const DEFAULT_CHAT_MAX_CONTEXT_MESSAGES = 30;
@@ -272,4 +274,19 @@ export const getChatMaxMessageLength = (): number => {
 export const getChatConfig = (): ChatConfig => ({
   maxContextMessages: getChatMaxContextMessages(),
   maxMessageLength: getChatMaxMessageLength(),
+  maxToolRounds: getChatMaxToolRounds(),
 });
+
+export const DEFAULT_CHAT_MAX_TOOL_ROUNDS = 3;
+
+/**
+ * Maximum LLM → tool → LLM rounds executed per text user message (Phase 5).
+ * Bounds the tool loop so a misbehaving model can never infinite-loop.
+ * Applies to conversation-anchored execution only; the legacy Vapi path
+ * executes tools on the Vapi side and is unaffected.
+ */
+export const getChatMaxToolRounds = (): number => {
+  const parsed = Number(process.env.CHAT_MAX_TOOL_ROUNDS);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed <= 10) return parsed;
+  return DEFAULT_CHAT_MAX_TOOL_ROUNDS;
+};

@@ -8,7 +8,12 @@ import {
   resolveAgentIdentity,
 } from './conversation';
 import { searchKnowledge } from '../services/knowledgeService';
-import { getChatMaxContextMessages } from '../config';
+import { getChatMaxContextMessages, getChatMaxToolRounds } from '../config';
+import {
+  dispatchConversationTool,
+  getTextToolDefinitions,
+  TrustedConversationContext,
+} from './conversationTools';
 import { logger } from '../utils/logger';
 
 /** Selective-RAG retrieval defaults (Phase 4: preserved from Phase 1/3). */
@@ -204,6 +209,11 @@ SUPPORTED LANGUAGES & RULES:
     // 4. Invoke LLM Provider. Exceptions propagate so the controller can
     // return a safe API error WITHOUT persisting a fake assistant message.
     const provider = getLlmProvider();
+    const isTextTurn = identity.kind === 'conversation';
+    // Text turns advertise the conversation-anchored tools when the caller
+    // did not supply its own definitions. The legacy Vapi path keeps its
+    // caller-supplied tools untouched (Vapi executes those server-side).
+    const activeTools = tools ?? (isTextTurn ? getTextToolDefinitions() : undefined);
     logger.info('Using LLM Provider', {
       provider: provider.getProviderName(),
       conversationId: identity.conversationId ?? null,
@@ -213,10 +223,15 @@ SUPPORTED LANGUAGES & RULES:
       contextMessages: fullMessages.length,
     });
 
+    const invokeFirst = async (): Promise<LlmResponse> => {
+      if (stream && provider.generateStream) {
+        return provider.generateStream(fullMessages, activeTools, onStreamChunk);
+      }
+      return provider.generateResponse(fullMessages, activeTools);
+    };
+
     try {
-      const response = stream && provider.generateStream
-        ? await provider.generateStream(fullMessages, tools, onStreamChunk)
-        : await provider.generateResponse(fullMessages, tools);
+      const first = await invokeFirst();
       logger.info('AgentOrchestrator turn completed', {
         conversationId: identity.conversationId ?? null,
         callId: identity.callId ?? null,
@@ -225,7 +240,16 @@ SUPPORTED LANGUAGES & RULES:
         ragChunkCount,
         llmSuccess: true,
       });
-      return response;
+      // Legacy voice/Vapi turns return tool calls to the caller for
+      // server-side execution — never auto-execute here.
+      if (!isTextTurn || !first.toolCalls || first.toolCalls.length === 0) {
+        return first;
+      }
+      // Phase 5: bounded conversation-anchored tool loop (text only).
+      return await this.runTextToolLoop(provider, fullMessages, first, activeTools, {
+        conversationId: identity.conversationId as string,
+        leadId: effectiveContext.leadId ?? null,
+      });
     } catch (err: any) {
       logger.error('AgentOrchestrator LLM failure (no assistant message persisted)', {
         conversationId: identity.conversationId ?? null,
@@ -237,6 +261,96 @@ SUPPORTED LANGUAGES & RULES:
       });
       throw err;
     }
+  }
+
+  /**
+   * Execute LLM-requested tools against the trusted conversation context and
+   * continue the LLM until a final response (or the round budget runs out).
+   * Bounded by CHAT_MAX_TOOL_ROUNDS; unknown tools and invalid arguments
+   * become safe tool errors, never crashes; repeated failure stops safely.
+   */
+  private async runTextToolLoop(
+    provider: ReturnType<typeof getLlmProvider>,
+    seedMessages: LlmMessage[],
+    first: LlmResponse,
+    tools: LlmToolDefinition[] | undefined,
+    ctx: TrustedConversationContext
+  ): Promise<LlmResponse> {
+    const maxRounds = getChatMaxToolRounds();
+    const working: LlmMessage[] = [...seedMessages];
+    let current = first;
+    let rounds = 0;
+
+    while (current.toolCalls && current.toolCalls.length > 0 && rounds < maxRounds) {
+      rounds += 1;
+      const pending = current.toolCalls;
+      logger.info('Text tool round started', {
+        conversationId: ctx.conversationId,
+        leadId: ctx.leadId ?? null,
+        round: rounds,
+        maxRounds,
+        toolCount: pending.length,
+      });
+
+      const followups: LlmMessage[] = [
+        { role: 'assistant', content: current.content || '', tool_calls: pending as unknown as any[] },
+      ];
+      for (const call of pending) {
+        // The raw arguments string goes straight to the dispatcher, which
+        // parses, validates, and injects the trusted context. LLM-supplied
+        // identities inside are ignored — ctx always wins.
+        const outcome = await dispatchConversationTool(ctx, call.function?.name, call.function?.arguments);
+        current.executedTools = [...(current.executedTools ?? []), { name: outcome.name, success: outcome.success }];
+        followups.push({ role: 'tool', content: outcome.resultText, tool_call_id: call.id });
+      }
+      working.push(...followups);
+
+      try {
+        const next = await provider.generateResponse(working, tools);
+        // Carry the audit trail across continuations.
+        next.executedTools = current.executedTools;
+        current = next;
+      } catch (err: any) {
+        logger.error('Text tool-loop LLM continuation failed; returning safe partial response', {
+          conversationId: ctx.conversationId,
+          leadId: ctx.leadId ?? null,
+          round: rounds,
+          error: err?.message,
+        });
+        current = {
+          content: current.content || 'I ran into a problem finishing that update. Please try again.',
+          finishReason: 'stop',
+          executedTools: current.executedTools,
+        };
+        break;
+      }
+    }
+
+    if (current.toolCalls && current.toolCalls.length > 0 && rounds >= maxRounds) {
+      // Budget exhausted with calls still pending: drop the unexecuted calls
+      // so nothing downstream mistakes them for completed work.
+      logger.warn('Text tool loop reached max rounds; dropping pending tool calls', {
+        conversationId: ctx.conversationId,
+        leadId: ctx.leadId ?? null,
+        maxRounds,
+        pendingTools: current.toolCalls.length,
+      });
+      current = { ...current, toolCalls: undefined };
+      if (!current.content || current.content.trim().length === 0) {
+        current = {
+          ...current,
+          content: 'I could not finish all the updates in time. Please try again.',
+        };
+      }
+    }
+
+    logger.info('Text tool loop finished', {
+      conversationId: ctx.conversationId,
+      leadId: ctx.leadId ?? null,
+      rounds,
+      executedTools: (current.executedTools ?? []).length,
+    });
+    return current;
   }
 }
 

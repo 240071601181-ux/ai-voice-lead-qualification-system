@@ -30,6 +30,17 @@ export interface LlmResponse {
   content: string;
   toolCalls?: LlmToolCall[];
   finishReason?: string;
+  /**
+   * Phase 5: audit-safe summary of conversation-anchored tool executions
+   * performed inside the orchestrator loop. Names + success flags only —
+   * never arguments, identities, or raw backend errors.
+   */
+  executedTools?: ExecutedToolSummary[];
+}
+
+export interface ExecutedToolSummary {
+  name: string;
+  success: boolean;
 }
 
 export interface LlmProvider {

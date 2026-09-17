@@ -276,18 +276,26 @@ export const postConversationMessageHandler = async (
       throw err;
     }
 
-    // Tool calls (if any) are persisted as metadata for Phase 5 execution.
-    // They are never executed here: existing tools are call-anchored and the
-    // LLM is never allowed to trigger arbitrary SQL/filesystem operations.
+    // Phase 5: conversation-anchored tools execute inside the orchestrator
+    // loop (bounded by CHAT_MAX_TOOL_ROUNDS). The final assistant response
+    // is persisted only after required tool execution completes — never
+    // before. Tool activity is recorded as audit-safe metadata (tool names
+    // + success flags only; no arguments, identities, or raw backend
+    // errors reach the transcript or the customer).
     const assistantContent =
       response.content && response.content.trim().length > 0
         ? response.content
         : TOOL_CALL_ONLY_FALLBACK;
+    const toolsExecuted = (response.executedTools ?? []).map((t) => ({
+      name: t.name,
+      success: t.success,
+    }));
     const assistantMessage = await conversationMessageService.appendMessage({
       conversationId: conversation.id,
       role: 'assistant',
       content: assistantContent,
       toolCalls: response.toolCalls ?? null,
+      metadata: toolsExecuted.length > 0 ? { toolsExecuted } : null,
     });
 
     logger.info('Conversation message answered', {
@@ -297,6 +305,7 @@ export const postConversationMessageHandler = async (
       extractedFields,
       historyMessages: history.length,
       contextLimit,
+      toolsExecuted,
       llmSuccess: true,
     });
     return res.status(201).json({
