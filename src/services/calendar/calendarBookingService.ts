@@ -20,8 +20,13 @@
  */
 import { LeadService } from '../leadService';
 import { findCallById } from '../../repositories/callRepository';
+import { findConversationById } from '../../repositories/conversationRepository';
+import { findConversationStateByConversationId } from '../../repositories/conversationStatesRepository';
 import { getStateByCallId } from '../conversationStateService';
-import { findQualificationByCallId } from '../../repositories/qualificationRepository';
+import {
+  findQualificationByCallId,
+  findQualificationByConversationId,
+} from '../../repositories/qualificationRepository';
 import {
   buildCalendarBookingKey,
   getCalendarProvider,
@@ -48,6 +53,8 @@ import { logger } from '../../utils/logger';
 export interface CalendarBookingInput {
   leadId?: string | null;
   callId?: string | null;
+  /** Phase 8: text-conversation anchor (trusted conversationId, never a fake callId). */
+  conversationId?: string | null;
   /** Explicit requested slot (ISO datetimes + IANA timezone). Required. */
   start?: string | null;
   end?: string | null;
@@ -118,9 +125,10 @@ export const requestCalendarBooking = async (
 ): Promise<CalendarBookingOutcome> => {
   if (!isCalendarEnabled()) return { ok: false, skipped: 'disabled' };
   const callId = input.callId || null;
+  const conversationId = input.conversationId || null;
   const inputLeadId = input.leadId || null;
-  if (!callId && !inputLeadId) {
-    logger.warn('Calendar booking skipped: no callId or leadId provided');
+  if (!callId && !inputLeadId && !conversationId) {
+    logger.warn('Calendar booking skipped: no callId, leadId, or conversationId provided');
     return { ok: false, skipped: 'no_input' };
   }
 
@@ -150,18 +158,45 @@ export const requestCalendarBooking = async (
 
   try {
     // Reuse existing Phase 1–11 readers only; no duplicated business logic.
-    const [call, state, qualification] = await Promise.all([
+    // Conversation path resolves the trusted lead from the conversation
+    // record (caller-supplied leadId is ignored); the legacy path reads by
+    // callId exactly as before.
+    const [call, conversation, state, qualification] = await Promise.all([
       callId ? findCallById(callId) : Promise.resolve(null),
-      callId ? getStateByCallId(callId) : Promise.resolve(null),
-      callId ? findQualificationByCallId(callId) : Promise.resolve(null)
+      conversationId ? findConversationById(conversationId) : Promise.resolve(null),
+      conversationId
+        ? findConversationStateByConversationId(conversationId)
+        : callId
+          ? getStateByCallId(callId)
+          : Promise.resolve(null),
+      conversationId
+        ? findQualificationByConversationId(conversationId)
+        : callId
+          ? findQualificationByCallId(callId)
+          : Promise.resolve(null)
     ]);
-    const leadId = inputLeadId || state?.lead_id || call?.lead_id || qualification?.lead_id || null;
+    if (conversationId && !conversation) {
+      logger.warn('Calendar booking skipped: conversation not found', { conversationId });
+      return { ok: false, skipped: 'no_data' };
+    }
+    // Phase 8: a lead-less conversation can never book — the trusted leadId
+    // comes from the conversation record alone. Do not book, do not infer.
+    if (conversationId && !conversation?.lead_id) {
+      logger.warn('Calendar booking skipped: conversation is not linked to a lead', {
+        conversationId,
+      });
+      return { ok: false, skipped: 'no_data' };
+    }
+    const leadId = conversationId
+      ? conversation?.lead_id || null
+      : inputLeadId || state?.lead_id || call?.lead_id || qualification?.lead_id || null;
     const lead = leadId ? await leadService.getLead(leadId) : null;
 
-    if (!lead && !call && !state && !qualification) {
-      logger.warn('Calendar booking skipped: no lead/call/state/qualification data found', {
+    if (!lead && !call && !state && !qualification && !conversation) {
+      logger.warn('Calendar booking skipped: no lead/call/state/qualification/conversation data found', {
         leadId,
-        callId
+        callId,
+        conversationId
       });
       return { ok: false, skipped: 'no_data' };
     }
@@ -169,12 +204,13 @@ export const requestCalendarBooking = async (
     // Eligibility: a persisted qualification gates tier; without one, the
     // explicit internal request itself is the business-logic determination.
     if (qualification && !cfg.autoBookTiers.includes(qualification.tier)) {
-      const anchor = callId || (leadId as string);
+      const anchor = conversationId ? `conv:${conversationId}` : callId || (leadId as string);
       const providerName = safeProviderName();
       const row = await upsertBookingAttempt({
         booking_key: buildCalendarBookingKey(providerName, anchor),
         lead_id: leadId,
         call_id: callId,
+        conversation_id: conversationId,
         qualification_id: qualification.id,
         provider: providerName,
         calendar_id: cfg.calendarId,
@@ -187,13 +223,16 @@ export const requestCalendarBooking = async (
       logger.info('Calendar booking skipped: tier not eligible', {
         tier: qualification.tier,
         leadId,
-        callId
+        callId,
+        conversationId
       });
       return { ok: false, skipped: 'tier', booking: row };
     }
 
     const provider = getCalendarProvider();
-    const anchor = call?.id || state?.call_id || qualification?.call_id || (leadId as string);
+    const anchor = conversationId
+      ? `conv:${conversationId}`
+      : call?.id || (state as any)?.call_id || qualification?.call_id || (leadId as string);
     const slotHash = hashCalendarSlot(slot);
 
     // Dedupe: same key + same slot already booked → return stored meeting.
@@ -202,7 +241,8 @@ export const requestCalendarBooking = async (
     if (previous && previous.status === 'booked' && previous.slot_hash === slotHash) {
       logger.info('Calendar booking deduplicated: returning existing meeting', {
         leadId,
-        callId
+        callId,
+        conversationId
       });
       return { ok: true, duplicate: true, booking: previous };
     }
@@ -214,6 +254,7 @@ export const requestCalendarBooking = async (
       booking_key: bookingKey,
       lead_id: leadId,
       call_id: callId,
+      conversation_id: conversationId,
       qualification_id: qualification?.id || null,
       provider: provider.name,
       calendar_id: cfg.calendarId,
@@ -235,7 +276,7 @@ export const requestCalendarBooking = async (
     );
     if (!availability.available) {
       await markBookingSkipped(row.id, 'skipped_unavailable');
-      logger.info('Calendar booking skipped: slot unavailable', { leadId, callId });
+      logger.info('Calendar booking skipped: slot unavailable', { leadId, callId, conversationId });
       return { ok: false, skipped: 'unavailable', booking: row };
     }
 
@@ -270,7 +311,7 @@ export const requestCalendarBooking = async (
         { maxRetries: cfg.maxRetries, baseDelayMs: cfg.baseDelayMs }
       );
       const booked = await markBookingBooked(row.id, result.externalEventId, result.meetUrl);
-      logger.info('Calendar booking completed', { leadId, callId, meetUrl: result.meetUrl });
+      logger.info('Calendar booking completed', { leadId, callId, conversationId, meetUrl: result.meetUrl });
       return { ok: true, created: true, booking: booked };
     } catch (insertErr: any) {
       // Provider-reported duplicate: resolve to the stored meeting when present.
@@ -286,11 +327,12 @@ export const requestCalendarBooking = async (
     const message = sanitizeCalendarErrorMessage(err);
     try {
       const providerName = safeProviderName();
-      const anchor = callId || inputLeadId || 'unknown';
+      const anchor = conversationId ? `conv:${conversationId}` : callId || inputLeadId || 'unknown';
       const failedRow = await upsertBookingAttempt({
         booking_key: buildCalendarBookingKey(providerName, anchor),
         lead_id: inputLeadId,
         call_id: callId,
+        conversation_id: conversationId,
         qualification_id: null,
         provider: providerName,
         calendar_id: getCalendarConfig().calendarId,
@@ -308,7 +350,8 @@ export const requestCalendarBooking = async (
     logger.error('Calendar booking failed', {
       error: message,
       leadId: inputLeadId,
-      callId
+      callId,
+      conversationId
     });
     return { ok: false };
   }

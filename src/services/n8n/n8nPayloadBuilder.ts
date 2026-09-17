@@ -16,6 +16,7 @@ import {
   N8nEventData,
   N8nEventName,
   N8nLeadFields,
+  N8nMeetingFields,
   N8nQualificationFields,
   N8nShipmentFields
 } from './n8nEventTypes';
@@ -30,6 +31,14 @@ export interface N8nBuildInput {
   /** Phase 7: text-conversation anchor + source marker (omitted for legacy). */
   conversation?: { id: string; channel?: string | null; status?: string | null } | null;
   source?: 'conversation' | 'legacy_call' | null;
+  /** Phase 8: explicit meeting details (meeting.scheduled only). */
+  meeting?: {
+    bookingId?: string | null;
+    provider?: string | null;
+    start?: string | null;
+    end?: string | null;
+    meetUrl?: string | null;
+  } | null;
 }
 
 export const buildN8nEventId = (
@@ -147,6 +156,16 @@ export const buildN8nEnvelope = (
       ...(input.conversation.channel ? { channel: input.conversation.channel } : {}),
       ...(input.conversation.status ? { status: input.conversation.status } : {}),
     };
+  }
+  // Phase 8: allowlisted meeting details only (ids, slot, URL — no tokens).
+  if (input.meeting) {
+    const meeting: N8nMeetingFields = {};
+    if (input.meeting.bookingId) meeting.bookingId = input.meeting.bookingId;
+    if (input.meeting.provider) meeting.provider = input.meeting.provider;
+    if (input.meeting.start) meeting.start = input.meeting.start;
+    if (input.meeting.end) meeting.end = input.meeting.end;
+    if (input.meeting.meetUrl) meeting.meetUrl = input.meeting.meetUrl;
+    if (Object.keys(meeting).length > 0) data.meeting = meeting;
   }
   return {
     event,

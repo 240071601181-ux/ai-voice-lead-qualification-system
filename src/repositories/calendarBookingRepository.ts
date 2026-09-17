@@ -20,6 +20,8 @@ export interface CalendarBookingRow {
   booking_key: string;
   lead_id: string | null;
   call_id: string | null;
+  /** Phase 8: text-conversation anchor (NULL for legacy call bookings). */
+  conversation_id: string | null;
   qualification_id: string | null;
   provider: string;
   calendar_id: string | null;
@@ -40,6 +42,8 @@ export interface CalendarBookingAttemptInput {
   booking_key: string;
   lead_id?: string | null;
   call_id?: string | null;
+  /** Phase 8: text-conversation anchor (never a fabricated callId). */
+  conversation_id?: string | null;
   qualification_id?: string | null;
   provider: string;
   calendar_id?: string | null;
@@ -61,13 +65,24 @@ export const findBookingByKey = async (bookingKey: string): Promise<CalendarBook
   return result.rows[0] || null;
 };
 
+/** Phase 8: bookings belonging to a text conversation, newest first. */
+export const findBookingsByConversationId = async (
+  conversationId: string
+): Promise<CalendarBookingRow[]> => {
+  const result = await pool.query(
+    'SELECT * FROM calendar_bookings WHERE conversation_id = $1 ORDER BY created_at DESC',
+    [conversationId]
+  );
+  return result.rows;
+};
+
 export const upsertBookingAttempt = async (
   input: CalendarBookingAttemptInput
 ): Promise<CalendarBookingRow> => {
   const result = await pool.query(
-    `INSERT INTO calendar_bookings (booking_key, lead_id, call_id, qualification_id, provider, calendar_id,
+    `INSERT INTO calendar_bookings (booking_key, lead_id, call_id, conversation_id, qualification_id, provider, calendar_id,
                                     scheduled_start, scheduled_end, timezone, status, attempts, slot_hash)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', 1, $10)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 1, $11)
      ON CONFLICT (booking_key) DO UPDATE SET
        status = 'pending',
        attempts = calendar_bookings.attempts + 1,
@@ -75,12 +90,14 @@ export const upsertBookingAttempt = async (
        scheduled_start = EXCLUDED.scheduled_start,
        scheduled_end = EXCLUDED.scheduled_end,
        timezone = EXCLUDED.timezone,
+       conversation_id = COALESCE(EXCLUDED.conversation_id, calendar_bookings.conversation_id),
        updated_at = NOW()
      RETURNING *`,
     [
       input.booking_key,
       input.lead_id || null,
       input.call_id || null,
+      input.conversation_id || null,
       input.qualification_id || null,
       input.provider,
       input.calendar_id || null,
@@ -137,6 +154,7 @@ export interface CalendarBookingListItem {
   id: string;
   lead_id: string | null;
   call_id: string | null;
+  conversation_id: string | null;
   provider: string;
   external_event_id: string | null;
   meet_url: string | null;
@@ -156,7 +174,7 @@ export interface CalendarBookingListItem {
  */
 export const listBookings = async (args: { limit: number; offset: number }): Promise<CalendarBookingListItem[]> => {
   const res = await pool.query(
-    `SELECT id, lead_id, call_id, provider, external_event_id, meet_url,
+    `SELECT id, lead_id, call_id, conversation_id, provider, external_event_id, meet_url,
             scheduled_start, scheduled_end, timezone, status, created_at, updated_at
        FROM calendar_bookings
       ORDER BY created_at DESC

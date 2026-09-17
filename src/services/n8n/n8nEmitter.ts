@@ -50,6 +50,14 @@ export interface N8nEnqueueInput {
   /** Phase 7: text-conversation anchor (trusted conversationId, never a fake callId). */
   conversationId?: string | null;
   crm?: N8nCrmFields | null;
+  /** Phase 8: explicit meeting details (meeting.scheduled only). */
+  meeting?: {
+    bookingId?: string | null;
+    provider?: string | null;
+    start?: string | null;
+    end?: string | null;
+    meetUrl?: string | null;
+  } | null;
 }
 
 export interface N8nEmitOutcome {
@@ -190,6 +198,7 @@ export const emitN8nEventOnce = async (
       crm: input.crm || null,
       conversation: conversationFields,
       source,
+      meeting: input.meeting || null,
     };
     const occurredAt = new Date().toISOString();
     const client = getN8nClient();

@@ -15,6 +15,10 @@ import {
   postConversationMessageHandler,
   postConversationQualificationHandler,
 } from '../controllers/conversationController';
+import {
+  getConversationAvailabilityHandler,
+  postConversationBookingHandler,
+} from '../controllers/conversationCalendarController';
 
 const router = Router();
 
@@ -33,5 +37,8 @@ router.post('/:id/abandon', abandonConversationHandler);
 // Phase 6: conversation qualification (same chat auth + rate limits).
 router.post('/:id/qualification', postConversationQualificationHandler);
 router.get('/:id/qualification', getConversationQualificationHandler);
+// Phase 8: explicit conversation meeting scheduling (same chat auth + rate limits).
+router.get('/:id/calendar/availability', getConversationAvailabilityHandler);
+router.post('/:id/calendar/book', postConversationBookingHandler);
 
 export default router;

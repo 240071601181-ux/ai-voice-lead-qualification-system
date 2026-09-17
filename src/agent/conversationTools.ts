@@ -1,6 +1,10 @@
 import { LlmToolDefinition } from './llm';
 import { ToolResult } from './tools';
 import {
+  checkCalendarAvailability,
+  requestCalendarBooking,
+} from '../services/calendar/calendarBookingService';
+import {
   TEXT_STATE_FIELDS,
   validateTextStateUpdate,
 } from './textStateExtraction';
@@ -44,6 +48,8 @@ export const TEXT_TOOL_NAMES = [
   'updateConversationState',
   'updateLeadInformation',
   'getConversationState',
+  'checkCalendarAvailability',
+  'scheduleMeeting',
 ] as const;
 
 export type TextToolName = (typeof TEXT_TOOL_NAMES)[number];
@@ -308,6 +314,167 @@ export const executeGetConversationStateText = async (
   }
 };
 
+/** Argument keys that may never appear in calendar tool calls. */
+const FORBIDDEN_CALENDAR_KEYS = new Set([
+  'leadid',
+  'lead_id',
+  'conversationid',
+  'conversation_id',
+  'callid',
+  'call_id',
+  'userid',
+  'user_id',
+  'required_date',
+  'requireddate',
+  'provider',
+  'calendarid',
+  'calendar_id',
+]);
+
+const CALENDAR_AVAILABILITY_FIELDS = ['start', 'end', 'timezone'] as const;
+const CALENDAR_BOOKING_FIELDS = [
+  'start',
+  'end',
+  'timezone',
+  'title',
+  'summary',
+  'notes',
+  'description',
+] as const;
+
+const nonEmptyString = (value: unknown, max = 500): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > max) return undefined;
+  return trimmed;
+};
+
+/**
+ * Check availability for an explicitly requested slot. Read-only: never
+ * books. The logistics required_date is never consulted as a meeting time —
+ * only explicit start/end arguments are accepted.
+ */
+export const executeCheckCalendarAvailabilityText = async (
+  ctx: TrustedConversationContext,
+  rawArgs: unknown
+): Promise<ToolResult> => {
+  const args = parseConversationToolArguments(rawArgs);
+  if (!args) {
+    return { success: false, errors: ['Tool arguments must be a JSON object'] };
+  }
+  for (const key of Object.keys(args)) {
+    if (FORBIDDEN_CALENDAR_KEYS.has(key.toLowerCase())) {
+      return { success: false, errors: [`${key} cannot be supplied to this tool`] };
+    }
+    if (!(CALENDAR_AVAILABILITY_FIELDS as readonly string[]).includes(key)) {
+      return { success: false, errors: [`Unknown field: ${key}`] };
+    }
+  }
+  const start = nonEmptyString(args['start']);
+  const end = nonEmptyString(args['end']);
+  if (!start || !end) {
+    return {
+      success: false,
+      errors: ['Explicit start and end datetimes are required (ask the user for a time)'],
+    };
+  }
+  try {
+    const outcome = await checkCalendarAvailability({
+      start,
+      end,
+      timezone: nonEmptyString(args['timezone'], 64) ?? null,
+    });
+    if (outcome.ok) {
+      return {
+        success: true,
+        message: outcome.available
+          ? 'The requested slot is available.'
+          : 'The requested slot is not available. Ask the user for another time.',
+      };
+    }
+    return {
+      success: false,
+      errors: [`Availability check not completed (${outcome.skipped || 'provider_error'})`],
+    };
+  } catch (err) {
+    logger.error('Text tool checkCalendarAvailability failed', {
+      conversationId: ctx.conversationId,
+      error: (err as Error)?.message,
+    });
+    return { success: false, errors: [sanitizeToolError(err)] };
+  }
+};
+
+/**
+ * Book an explicitly requested meeting slot for the trusted conversation.
+ * Requires user-provided start/end (explicit confirmation upstream); never
+ * infers the time from required_date or any other slot.
+ */
+export const executeScheduleMeetingText = async (
+  ctx: TrustedConversationContext,
+  rawArgs: unknown
+): Promise<ToolResult> => {
+  if (!ctx.leadId) {
+    return { success: false, errors: ['This conversation is not linked to a lead, so booking is unavailable'] };
+  }
+  const args = parseConversationToolArguments(rawArgs);
+  if (!args) {
+    return { success: false, errors: ['Tool arguments must be a JSON object'] };
+  }
+  for (const key of Object.keys(args)) {
+    if (FORBIDDEN_CALENDAR_KEYS.has(key.toLowerCase())) {
+      return { success: false, errors: [`${key} cannot be supplied to this tool`] };
+    }
+    if (!(CALENDAR_BOOKING_FIELDS as readonly string[]).includes(key)) {
+      return { success: false, errors: [`Unknown field: ${key}`] };
+    }
+  }
+  const start = nonEmptyString(args['start']);
+  const end = nonEmptyString(args['end']);
+  if (!start || !end) {
+    return {
+      success: false,
+      errors: ['Explicit start and end datetimes are required (ask the user for a time)'],
+    };
+  }
+  try {
+    const outcome = await requestCalendarBooking({
+      conversationId: ctx.conversationId,
+      start,
+      end,
+      timezone: nonEmptyString(args['timezone'], 64) ?? null,
+      summary:
+        nonEmptyString(args['title']) ?? nonEmptyString(args['summary']) ?? null,
+      description:
+        nonEmptyString(args['notes'], 2000) ?? nonEmptyString(args['description'], 2000) ?? null,
+    });
+    if (outcome.ok && outcome.booking) {
+      const parts = [
+        'Meeting scheduled successfully',
+        `booking ${outcome.booking.id}`,
+        `${outcome.booking.scheduled_start} to ${outcome.booking.scheduled_end} (${outcome.booking.timezone})`,
+      ];
+      if (outcome.booking.meet_url) parts.push(`Join: ${outcome.booking.meet_url}`);
+      if (outcome.duplicate) parts.push('(existing booking reused)');
+      logger.info('Text tool scheduleMeeting executed', {
+        conversationId: ctx.conversationId,
+        leadId: ctx.leadId ?? null,
+      });
+      return { success: true, message: parts.join('. ') };
+    }
+    return {
+      success: false,
+      errors: [`Meeting could not be scheduled (${outcome.skipped || 'provider_error'})`],
+    };
+  } catch (err) {
+    logger.error('Text tool scheduleMeeting failed', {
+      conversationId: ctx.conversationId,
+      error: (err as Error)?.message,
+    });
+    return { success: false, errors: [sanitizeToolError(err)] };
+  }
+};
+
 export interface DispatchedToolOutcome {
   name: string;
   success: boolean;
@@ -350,6 +517,10 @@ export const dispatchConversationTool = async (
       result = await executeUpdateConversationStateText(ctx, rawArgs);
     } else if (name === 'updateLeadInformation') {
       result = await executeUpdateLeadInformationText(ctx, rawArgs);
+    } else if (name === 'checkCalendarAvailability') {
+      result = await executeCheckCalendarAvailabilityText(ctx, rawArgs);
+    } else if (name === 'scheduleMeeting') {
+      result = await executeScheduleMeetingText(ctx, rawArgs);
     } else {
       result = await executeGetConversationStateText(ctx);
     }
@@ -437,6 +608,42 @@ export const getTextToolDefinitions = (): LlmToolDefinition[] => [
       description:
         'Read the shipment details recorded so far in this conversation. Call this when the customer asks what you have on file.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'checkCalendarAvailability',
+      description:
+        'Check calendar availability for an explicitly user-provided time slot. Read-only: never books. Only call with a concrete start/end the user gave; never infer a time from required_date or any other field.',
+      parameters: {
+        type: 'object',
+        properties: {
+          start: { type: 'string', description: 'ISO-8601 meeting start provided by the user' },
+          end: { type: 'string', description: 'ISO-8601 meeting end provided by the user' },
+          timezone: { type: 'string', description: 'IANA timezone, e.g. Asia/Kolkata' },
+        },
+        required: ['start', 'end'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'scheduleMeeting',
+      description:
+        'Book a meeting for an explicitly user-confirmed time slot. Only call after the user provided a concrete date/time (ask first if missing). Never infer the time from required_date. Requires explicit start and end.',
+      parameters: {
+        type: 'object',
+        properties: {
+          start: { type: 'string', description: 'ISO-8601 meeting start confirmed by the user' },
+          end: { type: 'string', description: 'ISO-8601 meeting end confirmed by the user' },
+          timezone: { type: 'string', description: 'IANA timezone, e.g. Asia/Kolkata' },
+          title: { type: 'string', description: 'Meeting title' },
+          notes: { type: 'string', description: 'Optional meeting notes' },
+        },
+        required: ['start', 'end'],
+      },
     },
   },
 ];

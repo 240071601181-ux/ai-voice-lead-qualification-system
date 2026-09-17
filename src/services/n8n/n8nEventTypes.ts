@@ -11,7 +11,9 @@ export const N8N_EVENTS = [
   'lead.updated',
   'call.completed',
   'qualification.completed',
-  'crm_sync.completed'
+  'crm_sync.completed',
+  /** Phase 8: emitted after an explicit conversation meeting booking. */
+  'meeting.scheduled'
 ] as const;
 
 export type N8nEventName = (typeof N8N_EVENTS)[number];
@@ -82,6 +84,16 @@ export interface N8nEventData {
   source?: 'conversation' | 'legacy_call' | null;
   /** Phase 7: text-conversation anchor (present only for conversation events). */
   conversation?: N8nConversationFields | null;
+  /** Phase 8: explicit meeting booking details (meeting.scheduled only). */
+  meeting?: N8nMeetingFields | null;
+}
+
+export interface N8nMeetingFields {
+  bookingId?: string | null;
+  provider?: string | null;
+  start?: string | null;
+  end?: string | null;
+  meetUrl?: string | null;
 }
 
 export interface N8nConversationFields {

@@ -206,11 +206,19 @@ describe('Phase 5: Conversation-Anchored Tool Execution', () => {
   describe('dispatcher + argument validation', () => {
     it('exposes exactly the text-safe tools (no endCall, no SQL/URL tools)', () => {
       expect(getTextToolDefinitions().map((t) => t.function.name).sort()).toEqual(
-        ['getConversationState', 'updateConversationState', 'updateLeadInformation'].sort()
+        [
+          'getConversationState',
+          'updateConversationState',
+          'updateLeadInformation',
+          'checkCalendarAvailability',
+          'scheduleMeeting',
+        ].sort()
       );
       expect(isTextToolName('updateConversationState')).toBe(true);
       expect(isTextToolName('updateLeadInformation')).toBe(true);
       expect(isTextToolName('getConversationState')).toBe(true);
+      expect(isTextToolName('checkCalendarAvailability')).toBe(true);
+      expect(isTextToolName('scheduleMeeting')).toBe(true);
       expect(isTextToolName('endCall')).toBe(false);
       expect(isTextToolName('queryDatabase')).toBe(false);
       expect(isTextToolName('executeSQL')).toBe(false);

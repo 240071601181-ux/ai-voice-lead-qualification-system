@@ -35,6 +35,7 @@ export const TEXT_TURN_GUIDANCE = [
   '- Maintain conversational continuity with the recent history (names, places, prior answers).',
   '- Reply in the customer\'s language (English, Hindi, Tamil) and code-switch naturally.',
   '- Never claim a booking, payment, or update succeeded unless a tool result confirms it.',
+  '- Meetings: only offer to schedule after the user gives a concrete date/time (ask first); check availability before booking; never infer meeting time from required_date.',
 ].join('\n');
 
 /** Short conversational messages that never need knowledge retrieval. */
