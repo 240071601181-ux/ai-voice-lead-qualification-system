@@ -97,3 +97,65 @@ AgentOrchestrator
   `conversation_state` table are unchanged and remain the temporary source
   of truth for voice.
 - `calls` and old `conversation_state` remain legacy until Phase 9.
+
+## Phase 4 — multi-turn text agent (history → state → RAG → LLM)
+
+Per-turn flow (text only; Vapi/call path unchanged):
+
+```
+Message history (persisted, chronological)
+  → state resolution (conversation_states by conversationId)
+  → state extraction from current user turn (validated, text-safe)
+  → state persistence (deterministic merge)
+  → selective RAG (topK 3, threshold 0.3; skipped for trivial messages)
+  → LLM (bounded history window)
+  → assistant message persistence
+```
+
+Prompt context is assembled deterministically in `AgentOrchestrator`:
+
+```
+System/business instructions (agent/config.ts, unchanged)
+  → operator configuration (live)
+  → text-turn guidance (TEXT_TURN_GUIDANCE, additive)
+  → CURRENT CONVERSATION STATE (structured slots)
+  → RETRIEVED KNOWLEDGE BASE CONTEXT (only when selective RAG fires)
+  → recent conversation history (role + content only, chronological)
+  → current user turn (last history row)
+```
+
+Notes:
+
+- History: every turn loads prior rows in chronological order and forwards
+  only `{ role, content }` — DB metadata (ids, timestamps, `metadata`,
+  `tool_calls`) never reaches the LLM, persisted system rows are filtered so
+  the assembled system prompt is never duplicated, and tool payloads are
+  never injected as user text. `CHAT_MAX_CONTEXT_MESSAGES` (default 30,
+  `src/config`) bounds the forwarded window via `limitContextMessages()`
+  (also enforced inside the orchestrator as defense-in-depth); older rows
+  stay persisted and are simply not forwarded.
+- State extraction (`src/agent/textStateExtraction.ts`, pure data logic —
+  no SQL/filesystem/tool execution): deterministic heuristic over the
+  current user message → `validateTextStateUpdate()` (whitelisted slots,
+  unknown/invalid values dropped, SQL/code patterns rejected; arbitrary
+  LLM JSON goes through the same validator) → `mergeTextConversationState()`
+  → `extractAndPersistTextState()` in `conversationStateService.ts` writes
+  to `conversation_states` via parameterized repository calls only.
+- State merge: unknown/null/empty values leave existing fields unchanged;
+  known values overwrite; unrelated fields are preserved. Example:
+  `pickup=Chennai, destination=Bengaluru` + `"Actually pickup should be
+  Tambaram."` → `pickup=Tambaram, destination=Bengaluru`.
+- RAG: `isKnowledgeSearchRequired()` keeps the Phase 1/3 decision
+  mechanism and the same embedding/retrieval implementation
+  (`topK: 3`, threshold `0.3`, exported as `RAG_TOP_K` /
+  `RAG_SIMILARITY_THRESHOLD`); keyword coverage was extended so fleet /
+  operating-hours questions (`What vehicles do you provide?`, `Do you
+  operate on Sundays?`, `What are your cargo restrictions?`) retrieve while
+  trivial messages (`Hi`, `Okay`, `Thanks`) never do.
+- Safety: the user message is persisted before the LLM call; if the LLM
+  fails the API returns a safe error, no assistant message (and no fake
+  business action) is recorded, and secrets/system prompts never leak.
+- Observability (structured, no secrets/prompts/keys, message bodies only
+  as a 120-char preview + length): `conversationId`, `leadId`, `channel`,
+  `ragUsed`, `ragChunkCount`, `stateChanged`, `extractedFields`,
+  `contextMessages`/`historyMessages`, `llmSuccess`.

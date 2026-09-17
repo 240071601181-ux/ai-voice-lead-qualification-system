@@ -6,6 +6,8 @@ import {
 } from '../models/Conversation';
 import { LlmMessage } from '../agent/llm';
 import { orchestrator } from '../agent/orchestrator';
+import { getChatMaxContextMessages, getChatMaxMessageLength } from '../config';
+import { extractAndPersistTextState } from '../services/conversationStateService';
 import { conversationService } from '../services/conversationService';
 import { conversationMessageService } from '../services/conversationMessageService';
 import {
@@ -19,10 +21,7 @@ import {
 import { leadRepository } from '../repositories/leadRepository';
 import { logger } from '../utils/logger';
 
-const MAX_MESSAGE_LENGTH = (): number => {
-  const parsed = Number(process.env.CHAT_MAX_MESSAGE_LENGTH);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4000;
-};
+const MAX_MESSAGE_LENGTH = (): number => getChatMaxMessageLength();
 
 /** Stored when the LLM returns tool calls without displayable text. */
 const TOOL_CALL_ONLY_FALLBACK = 'Working on your request — one moment.';
@@ -225,18 +224,57 @@ export const postConversationMessageHandler = async (
       role: 'user',
       content,
     });
-    const history = await conversationMessageService.getHistory(conversation.id);
 
-    const response = await orchestrator.processTurn({
-      conversationId: conversation.id,
-      context: {
+    // Phase 4: text-safe state extraction BEFORE the LLM turn, so the current
+    // turn's structured slots are visible in CURRENT CONVERSATION STATE.
+    // Failures are isolated — extraction must never break the chat turn.
+    let stateChanged = false;
+    let extractedFields = 0;
+    try {
+      const extraction = await extractAndPersistTextState(conversation.id, content, {
+        leadId: conversation.lead_id ?? null,
+      });
+      stateChanged = extraction.stateChanged;
+      extractedFields = extraction.extractedFields;
+    } catch (err: any) {
+      logger.error('Text state extraction error (chat continues)', {
+        conversationId: conversation.id,
+        error: err?.message,
+      });
+    }
+
+    // Multi-turn history window: chronological, bounded by
+    // CHAT_MAX_CONTEXT_MESSAGES. Older persisted rows are retained in the
+    // database; only the LLM input is truncated (token safety).
+    const contextLimit = getChatMaxContextMessages();
+    const history = await conversationMessageService.getRecent(conversation.id, contextLimit);
+
+    let response;
+    try {
+      response = await orchestrator.processTurn({
+        conversationId: conversation.id,
+        context: {
+          conversationId: conversation.id,
+          leadId: conversation.lead_id ?? null,
+          channel: conversation.channel,
+        },
+        channel: conversation.channel,
+        messages: toLlmMessages(history),
+      });
+    } catch (err: any) {
+      // LLM safety: the USER message stays persisted; no assistant message
+      // (and no fake business action) is recorded on failure.
+      logger.error('Conversation LLM turn failed (user message retained, no assistant persisted)', {
         conversationId: conversation.id,
         leadId: conversation.lead_id ?? null,
-        channel: conversation.channel,
-      },
-      channel: conversation.channel,
-      messages: toLlmMessages(history),
-    });
+        stateChanged,
+        extractedFields,
+        historyMessages: history.length,
+        contextLimit,
+        error: err?.message,
+      });
+      throw err;
+    }
 
     // Tool calls (if any) are persisted as metadata for Phase 5 execution.
     // They are never executed here: existing tools are call-anchored and the
@@ -254,6 +292,12 @@ export const postConversationMessageHandler = async (
 
     logger.info('Conversation message answered', {
       conversationId: conversation.id,
+      leadId: conversation.lead_id ?? null,
+      stateChanged,
+      extractedFields,
+      historyMessages: history.length,
+      contextLimit,
+      llmSuccess: true,
     });
     return res.status(201).json({
       success: true,

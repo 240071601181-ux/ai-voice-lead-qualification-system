@@ -8,7 +8,35 @@ import {
   resolveAgentIdentity,
 } from './conversation';
 import { searchKnowledge } from '../services/knowledgeService';
+import { getChatMaxContextMessages } from '../config';
 import { logger } from '../utils/logger';
+
+/** Selective-RAG retrieval defaults (Phase 4: preserved from Phase 1/3). */
+export const RAG_TOP_K = 3;
+export const RAG_SIMILARITY_THRESHOLD = 0.3;
+
+/**
+ * Text-turn guidance layered on top of the shared system prompt (Phase 4).
+ * The core prompt in agent/config.ts is untouched; this additive block makes
+ * the shared behavior explicit for multi-turn text: use known slots, don't
+ * re-ask, stay in character, never claim an action succeeded without a tool.
+ */
+export const TEXT_TURN_GUIDANCE = [
+  'TEXT CONVERSATION RULES:',
+  '- You are a logistics sales assistant having a multi-turn text conversation.',
+  '- Collect missing qualification information naturally, one or two questions at a time.',
+  '- Do NOT repeatedly ask for details already listed under CURRENT CONVERSATION STATE.',
+  '- Use RETRIEVED KNOWLEDGE BASE CONTEXT when relevant; otherwise rely on the conversation.',
+  '- Maintain conversational continuity with the recent history (names, places, prior answers).',
+  '- Reply in the customer\'s language (English, Hindi, Tamil) and code-switch naturally.',
+  '- Never claim a booking, payment, or update succeeded unless a tool result confirms it.',
+].join('\n');
+
+/** Short conversational messages that never need knowledge retrieval. */
+const TRIVIAL_MESSAGES = new Set([
+  'hi', 'hello', 'hey', 'ok', 'okay', 'thanks', 'thank you', 'bye',
+  'yes', 'no', 'sure', 'great', 'fine', 'good morning', 'good afternoon', 'good evening',
+]);
 
 export interface ProcessTurnOptions {
   /** Preferred identity for text conversations (Phase 1). */
@@ -28,16 +56,38 @@ export interface ProcessTurnOptions {
 /**
  * Checks whether user query requires company-specific knowledge search.
  * Only triggers RAG search when factual knowledge/policy terms are asked.
+ * Trivial conversational messages (hi/okay/thanks) never trigger retrieval.
  */
 export const isKnowledgeSearchRequired = (text: string): boolean => {
   if (!text || typeof text !== 'string') return false;
-  const lower = text.toLowerCase();
+  const trimmed = text.trim().toLowerCase();
+  if (trimmed.length === 0) return false;
+  if (TRIVIAL_MESSAGES.has(trimmed)) return false;
+  if (trimmed.length <= 3) return false;
+  const lower = trimmed;
   const keywords = [
+    // Preserved Phase 1/3 decision vocabulary (do not remove).
     'policy', 'sop', 'standard', 'rule', 'rate', 'guideline', 'restriction',
     'term', 'condition', 'timing', 'guarantee', 'cancellation', 'procedure',
-    'hours', 'delivery time', 'tracking', 'cargo rule', 'what is the policy'
+    'hours', 'delivery time', 'tracking', 'cargo rule', 'what is the policy',
+    // Phase 4 extensions: fleet/services + operating-hours questions.
+    'vehicle', 'vehicles', 'fleet', 'truck', 'container', 'tempo', 'lorry', 'trailer',
+    'service', 'services', 'provide', 'offer', 'operate', 'operating', 'operation',
+    'sunday', 'monday', 'holiday', 'working day', 'open on', 'working hours',
+    'shipment', 'delivery', 'cargo', 'price', 'pricing', 'cost', 'charge', 'fee', 'quote',
+    'coverage', 'cities', 'support',
   ];
   return keywords.some(kw => lower.includes(kw));
+};
+
+/**
+ * Bound the history window forwarded to the LLM (Phase 4 token safety).
+ * Pure slice of the already-chronological history; persistence is untouched.
+ */
+export const limitContextMessages = <T>(messages: T[], max?: number): T[] => {
+  const cap = max ?? getChatMaxContextMessages();
+  if (!Array.isArray(messages) || messages.length <= cap) return messages;
+  return messages.slice(messages.length - cap);
 };
 
 export class AgentOrchestrator {
@@ -55,12 +105,15 @@ export class AgentOrchestrator {
     };
     const identity = resolveAgentIdentity(effectiveContext);
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+    const messagePreview = lastUserMsg.slice(0, 120);
 
     logger.info('AgentOrchestrator processing turn', {
       conversationId: identity.conversationId ?? null,
       callId: identity.callId ?? null,
       channel: effectiveContext.channel ?? null,
-      userMessage: lastUserMsg,
+      leadId: effectiveContext.leadId ?? null,
+      userMessageLength: lastUserMsg.length,
+      userMessagePreview: messagePreview,
     });
 
     // 1. Fetch current conversation state. Preferred path resolves by
@@ -89,12 +142,22 @@ export class AgentOrchestrator {
         logger.error('Error fetching conversation state in AgentOrchestrator', { error: err.message });
       }
 
-    // 2. Selective RAG Knowledge Retrieval (Phase 6 integration)
+    // 2. Selective RAG Knowledge Retrieval (preserved topK/threshold).
+    // Skipped for trivial conversational messages; failures never break chat.
     let ragContextStr = '';
+    let ragUsed = false;
+    let ragChunkCount = 0;
     if (isKnowledgeSearchRequired(lastUserMsg)) {
       try {
-        logger.info('Factual knowledge search triggered in AgentOrchestrator', { query: lastUserMsg });
-        const ragResult = await searchKnowledge({ query: lastUserMsg, topK: 3, similarityThreshold: 0.3 });
+        logger.info('Factual knowledge search triggered in AgentOrchestrator', {
+          conversationId: identity.conversationId ?? null,
+          callId: identity.callId ?? null,
+          queryLength: lastUserMsg.length,
+          queryPreview: messagePreview,
+        });
+        const ragResult = await searchKnowledge({ query: lastUserMsg, topK: RAG_TOP_K, similarityThreshold: RAG_SIMILARITY_THRESHOLD });
+        ragUsed = true;
+        ragChunkCount = ragResult.results ? ragResult.results.length : 0;
         if (ragResult.results && ragResult.results.length > 0) {
           ragContextStr = `\n\nRETRIEVED KNOWLEDGE BASE CONTEXT:\n` +
             ragResult.results.map((r, i) => `[Document ${i + 1}: ${r.title}]\n${r.chunkText}`).join('\n\n');
@@ -106,33 +169,74 @@ export class AgentOrchestrator {
       }
     }
 
-    // 3. Assemble System Prompt (operator configuration is read live so
-    // saved AI Agent page edits actually affect behavior)
+    // 3. Assemble System Prompt deterministically (Phase 4 order):
+    // business instructions -> operator config -> text-turn guidance ->
+    // current structured state -> retrieved knowledge -> history -> current turn.
+    // Operator configuration is read live so saved AI Agent page edits
+    // actually affect behavior. Core prompt in agent/config.ts is unchanged.
     const fullSystemPrompt = `${agentConfig.systemPrompt}
 
 OPERATOR CONFIGURATION (live):
 ${getAgentPromptContext()}
+
+${TEXT_TURN_GUIDANCE}
 
 SUPPORTED LANGUAGES & RULES:
 - Languages: English, Hindi, Tamil.
 - Naturally code-switch if customer speaks Hindi or Tamil.
 - Focus strictly on understanding & collecting logistics requirements.${stateContextStr}${ragContextStr}`;
 
-    // Filter incoming messages to exclude any existing system message and prepend assembled system prompt
-    const cleanHistory = messages.filter(m => m.role !== 'system');
+    // Filter incoming messages to exclude any existing system message and
+    // prepend the single assembled system prompt (never duplicated).
+    // Only role + content cross into the LLM: DB metadata (ids, timestamps,
+    // tool_calls payloads stored separately) is never forwarded, and no
+    // internal tool metadata is injected as user text.
+    // The history window is bounded by CHAT_MAX_CONTEXT_MESSAGES; older
+    // persisted rows are kept in the database and simply not forwarded.
+    const cleanHistory = limitContextMessages(
+      messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content }))
+    );
     const fullMessages: LlmMessage[] = [
       { role: 'system', content: fullSystemPrompt },
       ...cleanHistory
     ];
 
-    // 4. Invoke LLM Provider
+    // 4. Invoke LLM Provider. Exceptions propagate so the controller can
+    // return a safe API error WITHOUT persisting a fake assistant message.
     const provider = getLlmProvider();
-    logger.info(`Using LLM Provider: ${provider.getProviderName()}`);
+    logger.info('Using LLM Provider', {
+      provider: provider.getProviderName(),
+      conversationId: identity.conversationId ?? null,
+      callId: identity.callId ?? null,
+      ragUsed,
+      ragChunkCount,
+      contextMessages: fullMessages.length,
+    });
 
-    if (stream && provider.generateStream) {
-      return provider.generateStream(fullMessages, tools, onStreamChunk);
+    try {
+      const response = stream && provider.generateStream
+        ? await provider.generateStream(fullMessages, tools, onStreamChunk)
+        : await provider.generateResponse(fullMessages, tools);
+      logger.info('AgentOrchestrator turn completed', {
+        conversationId: identity.conversationId ?? null,
+        callId: identity.callId ?? null,
+        leadId: effectiveContext.leadId ?? null,
+        ragUsed,
+        ragChunkCount,
+        llmSuccess: true,
+      });
+      return response;
+    } catch (err: any) {
+      logger.error('AgentOrchestrator LLM failure (no assistant message persisted)', {
+        conversationId: identity.conversationId ?? null,
+        callId: identity.callId ?? null,
+        leadId: effectiveContext.leadId ?? null,
+        ragUsed,
+        ragChunkCount,
+        error: err?.message,
+      });
+      throw err;
     }
-    return provider.generateResponse(fullMessages, tools);
   }
 }
 

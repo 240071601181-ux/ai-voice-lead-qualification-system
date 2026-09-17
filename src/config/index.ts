@@ -243,3 +243,33 @@ export const isVapiCallConfigured = (): boolean => {
   const cfg = getVapiConfig();
   return cfg.apiKey.length > 0 && cfg.assistantId.length > 0 && cfg.phoneNumberId.length > 0;
 };
+
+export interface ChatConfig {
+  /** Max persisted messages forwarded to the LLM per turn (history window). */
+  maxContextMessages: number;
+  /** Max user message length (characters). */
+  maxMessageLength: number;
+}
+
+export const DEFAULT_CHAT_MAX_CONTEXT_MESSAGES = 30;
+
+/**
+ * Maximum text-turn history window sent to the LLM (Phase 4).
+ * Configuration-driven, never hardcoded at call sites. Older persisted
+ * messages are retained in the database; only the LLM input is truncated.
+ */
+export const getChatMaxContextMessages = (): number => {
+  const parsed = Number(process.env.CHAT_MAX_CONTEXT_MESSAGES);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed <= 200) return parsed;
+  return DEFAULT_CHAT_MAX_CONTEXT_MESSAGES;
+};
+
+export const getChatMaxMessageLength = (): number => {
+  const parsed = Number(process.env.CHAT_MAX_MESSAGE_LENGTH);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4000;
+};
+
+export const getChatConfig = (): ChatConfig => ({
+  maxContextMessages: getChatMaxContextMessages(),
+  maxMessageLength: getChatMaxMessageLength(),
+});
