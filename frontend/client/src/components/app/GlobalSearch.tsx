@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { FileText, Search, User } from "lucide-react";
+import { FileText, MessageSquareText, Search, User } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Command,
@@ -11,6 +11,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useLeadsQuery } from "@/api/hooks/useLeads";
+import { useConversationsQuery } from "@/api/hooks/useConversations";
 import { getUserMessage } from "@/api/errors";
 import { filterSearchPages } from "@/components/app/searchIndex";
 
@@ -63,6 +64,23 @@ export function GlobalSearch() {
   const leads = leadSearch.data?.leads ?? [];
   const searching = trimmed.length > 0 && leadSearch.isFetching && leads.length === 0;
   const searchFailed = trimmed.length > 0 && leadSearch.isError && !leadSearch.isFetching;
+
+  // Conversations: the list endpoint has no text search, so recent rows are
+  // fetched live and filtered client-side (id/lead/channel/status). Real
+  // backend data only — never fabricated.
+  const conversationSearch = useConversationsQuery(
+    { page: 1, limit: 20 },
+    { enabled: open && trimmed.length > 0 }
+  );
+  const conversations = useMemo(() => {
+    if (trimmed.length === 0) return [];
+    const q = trimmed.toLowerCase();
+    return (conversationSearch.data?.conversations ?? [])
+      .filter((c) =>
+        `${c.id} ${c.lead_id ?? ""} ${c.channel} ${c.status}`.toLowerCase().includes(q)
+      )
+      .slice(0, 5);
+  }, [conversationSearch.data, trimmed]);
 
   const pages = useMemo(() => filterSearchPages(query), [query]);
 
@@ -127,6 +145,28 @@ export function GlobalSearch() {
                       </span>
                       <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.7 }}>
                         {[lead.source, lead.status].filter(Boolean).join(" · ")}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+              {conversations.length > 0 ? (
+                <CommandGroup heading="Conversations">
+                  {conversations.map((c) => (
+                    <CommandItem
+                      key={c.id}
+                      value={`conversation ${c.id}`}
+                      onSelect={() => go(`/conversations/${c.id}`)}
+                    >
+                      <MessageSquareText />
+                      <span>
+                        <b>{c.lead_id ? `Lead ${c.lead_id.slice(0, 8)}` : "No lead"}</b>
+                        <small style={{ display: "block", opacity: 0.7 }}>
+                          {c.id}
+                        </small>
+                      </span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.7 }}>
+                        {[c.channel, c.status].filter(Boolean).join(" · ")}
                       </span>
                     </CommandItem>
                   ))}

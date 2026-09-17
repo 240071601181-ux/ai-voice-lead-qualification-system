@@ -195,6 +195,7 @@ export default function QualificationDetailPage() {
 
   const handleRerun = () => {
     if (rerunMutation.isPending) return; // prevent duplicate submission
+    if (!qualification.call_id) return; // conversation-anchored rows rerun from the conversation screen
     setRerunError(null);
     // Only field the backend accepts. Score/tier come back computed.
     rerunMutation.mutate(
@@ -215,7 +216,12 @@ export default function QualificationDetailPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span className="section-kicker" style={{ margin: 0 }}>LIVE BACKEND RECORD</span>
           <span style={{ fontSize: 10, color: "#8190a1" }}>
-            ID {qualification.id} · via {detail.lookup.via} · Call {qualification.call_id}
+            ID {qualification.id} · via {detail.lookup.via} ·{" "}
+            {qualification.call_id
+              ? `Call ${qualification.call_id}`
+              : qualification.conversation_id
+                ? `Conversation ${qualification.conversation_id}`
+                : "No anchor"}
             {qualification.lead_id ? ` · Lead ${qualification.lead_id}` : ""} · score and tier are backend-computed.
           </span>
           <span style={{ flex: 1 }} />
@@ -224,7 +230,7 @@ export default function QualificationDetailPage() {
             icon={RefreshCw}
             variant="secondary"
             onClick={handleRerun}
-            disabled={rerunMutation.isPending}
+            disabled={rerunMutation.isPending || !qualification.call_id}
           >
             {rerunMutation.isPending ? "Running…" : "Re-run qualification"}
           </Button>

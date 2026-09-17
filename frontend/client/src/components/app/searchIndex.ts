@@ -17,6 +17,7 @@ export const SEARCH_PAGES: SearchPage[] = [
   { label: "Dashboard", path: "/dashboard", keywords: "dashboard home overview" },
   { label: "Leads", path: "/leads", keywords: "leads pipeline shippers" },
   { label: "Calls", path: "/calls", keywords: "calls voice history" },
+  { label: "Conversations", path: "/conversations", keywords: "conversations text chat messages" },
   { label: "Qualifications", path: "/qualifications", keywords: "qualifications scores tiers hot warm cold" },
   { label: "Follow-ups", path: "/followups", keywords: "followups follow-ups reminders scheduled" },
   { label: "Calendar", path: "/calendar", keywords: "calendar meetings bookings schedule" },

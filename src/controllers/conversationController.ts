@@ -13,6 +13,7 @@ import {
   maybeAutoQualifyConversation,
   qualifyConversation,
 } from '../services/qualificationService';
+import { findConversationStateByConversationId } from '../repositories/conversationStatesRepository';
 import { conversationService } from '../services/conversationService';
 import { conversationMessageService } from '../services/conversationMessageService';
 import {
@@ -400,13 +401,33 @@ export const postConversationQualificationHandler = async (
   }
 };
 
-/** Read the persisted conversation qualification, if any. */
-export const getConversationQualificationHandler = async (
+/** Phase 9: read the persisted structured logistics state for the UI panel. */
+export const getConversationStateHandler = async (
   req: ChatAuthRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
+    const conversation = await conversationService.getConversation(req.params.id);
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Conversation not found', code: 404 },
+      });
+    }
+    const state = await findConversationStateByConversationId(conversation.id);
+    return res.json({ success: true, data: state });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+/** Read the persisted conversation qualification, if any. */
+export const getConversationQualificationHandler = async (
+  req: ChatAuthRequest,
+  res: Response,
+  next: NextFunction
+) => {  try {
     const conversation = await conversationService.getConversation(req.params.id);
     if (!conversation) {
       return res.status(404).json({

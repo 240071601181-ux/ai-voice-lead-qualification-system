@@ -7,23 +7,26 @@ import { useState, useEffect, useRef } from "react";
 import { Streamdown } from "streamdown";
 
 /**
- * Message type matching server-side LLM Message interface
+ * Message type for chat bubbles. System/tool rows must be filtered out by
+ * the caller (see toVisibleMessages) — only user/assistant render here.
  */
 export type Message = {
   role: "system" | "user" | "assistant";
   content: string;
+  /** Optional pre-formatted timestamp rendered under the bubble. */
+  timestamp?: string;
 };
 
 export type AIChatBoxProps = {
   /**
    * Messages array to display in the chat.
-   * Should match the format used by invokeLLM on the server.
+   * Callers pass backend records mapped to { role, content, timestamp? }.
    */
   messages: Message[];
 
   /**
    * Callback when user sends a message.
-   * Typically you'll call a tRPC mutation here to invoke the LLM.
+   * Typically a React Query mutation against the real conversation API.
    */
   onSendMessage: (content: string) => void;
 
@@ -31,6 +34,16 @@ export type AIChatBoxProps = {
    * Whether the AI is currently generating a response
    */
   isLoading?: boolean;
+
+  /**
+   * Disable the composer (e.g. completed conversations). History still renders.
+   */
+  disabled?: boolean;
+
+  /**
+   * Message shown in place of the input when disabled.
+   */
+  disabledMessage?: string;
 
   /**
    * Placeholder text for the input field
@@ -60,60 +73,45 @@ export type AIChatBoxProps = {
 };
 
 /**
- * A ready-to-use AI chat box component that integrates with the LLM system.
+ * A ready-to-use chat box component.
  *
  * Features:
- * - Matches server-side Message interface for seamless integration
- * - Markdown rendering with Streamdown
+ * - Markdown rendering with Streamdown (assistant bubbles)
  * - Auto-scrolls to latest message
  * - Loading states
+ * - Optional per-message timestamps
+ * - Enter sends / Shift+Enter newline, send disabled while loading
  * - Uses global theme colors from index.css
+ *
+ * Used by the text-conversation detail page against the real Express
+ * conversation API (POST /api/v1/conversations/:id/messages). The page owns
+ * persistence, retries, and error states — this component only renders
+ * bubbles and collects input (no streaming, no fake messages).
  *
  * @example
  * ```tsx
- * const ChatPage = () => {
- *   const [messages, setMessages] = useState<Message[]>([
- *     { role: "system", content: "You are a helpful assistant." }
- *   ]);
- *
- *   const chatMutation = trpc.ai.chat.useMutation({
- *     onSuccess: (response) => {
- *       // Assuming your tRPC endpoint returns the AI response as a string
- *       setMessages(prev => [...prev, {
- *         role: "assistant",
- *         content: response
- *       }]);
- *     },
- *     onError: (error) => {
- *       console.error("Chat error:", error);
- *       // Optionally show error message to user
- *     }
- *   });
- *
- *   const handleSend = (content: string) => {
- *     const newMessages = [...messages, { role: "user", content }];
- *     setMessages(newMessages);
- *     chatMutation.mutate({ messages: newMessages });
- *   };
- *
- *   return (
- *     <AIChatBox
- *       messages={messages}
- *       onSendMessage={handleSend}
- *       isLoading={chatMutation.isPending}
- *       suggestedPrompts={[
- *         "Explain quantum computing",
- *         "Write a hello world in Python"
- *       ]}
- *     />
- *   );
- * };
+ * const detail = useConversationMessagesQuery(id);
+ * const send = useSendConversationMessageMutation(id);
+ * const messages = toVisibleMessages(detail.data?.messages ?? []);
+ * return (
+ *   <AIChatBox
+ *     messages={messages.map((m) => ({
+ *       role: m.role,
+ *       content: m.content,
+ *       timestamp: formatMessageTime(m.created_at),
+ *     }))}
+ *     onSendMessage={(content) => send.mutate(content)}
+ *     isLoading={send.isPending}
+ *   />
+ * );
  * ```
  */
 export function AIChatBox({
   messages,
   onSendMessage,
   isLoading = false,
+  disabled = false,
+  disabledMessage = "This conversation is no longer active.",
   placeholder = "Type your message...",
   className,
   height = "600px",
@@ -168,7 +166,7 @@ export function AIChatBox({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedInput = input.trim();
-    if (!trimmedInput || isLoading) return;
+    if (!trimmedInput || isLoading || disabled) return;
 
     onSendMessage(trimmedInput);
     setInput("");
@@ -269,6 +267,18 @@ export function AIChatBox({
                           {message.content}
                         </p>
                       )}
+                      {message.timestamp ? (
+                        <p
+                          className={cn(
+                            "mt-1 text-[11px]",
+                            message.role === "user"
+                              ? "text-primary-foreground/70 text-right"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          {message.timestamp}
+                        </p>
+                      ) : null}
                     </div>
 
                     {message.role === "user" && (
@@ -303,6 +313,11 @@ export function AIChatBox({
       </div>
 
       {/* Input Area */}
+      {disabled ? (
+        <div className="flex gap-2 p-4 border-t bg-background/50 items-center">
+          <p className="text-sm text-muted-foreground">{disabledMessage}</p>
+        </div>
+      ) : (
       <form
         ref={inputAreaRef}
         onSubmit={handleSubmit}
@@ -330,6 +345,7 @@ export function AIChatBox({
           )}
         </Button>
       </form>
+      )}
     </div>
   );
 }

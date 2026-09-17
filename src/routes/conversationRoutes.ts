@@ -10,6 +10,7 @@ import {
   createConversationHandler,
   getConversationHandler,
   getConversationQualificationHandler,
+  getConversationStateHandler,
   listConversationMessagesHandler,
   listConversationsHandler,
   postConversationMessageHandler,
@@ -40,5 +41,7 @@ router.get('/:id/qualification', getConversationQualificationHandler);
 // Phase 8: explicit conversation meeting scheduling (same chat auth + rate limits).
 router.get('/:id/calendar/availability', getConversationAvailabilityHandler);
 router.post('/:id/calendar/book', postConversationBookingHandler);
+// Phase 9: structured logistics state for the conversation UI panel.
+router.get('/:id/state', getConversationStateHandler);
 
 export default router;

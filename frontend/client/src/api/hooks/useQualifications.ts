@@ -87,7 +87,9 @@ export function useCreateQualificationMutation() {
   return useMutation({
     mutationFn: (input: CreateQualificationInput) => createQualification(input),
     onSuccess: (qualification) => {
-      queryClient.setQueryData(qualificationKeys.byCall(qualification.call_id), qualification);
+      if (qualification.call_id) {
+        queryClient.setQueryData(qualificationKeys.byCall(qualification.call_id), qualification);
+      }
       if (qualification.lead_id) {
         queryClient.setQueryData(qualificationKeys.byLead(qualification.lead_id), qualification);
       }

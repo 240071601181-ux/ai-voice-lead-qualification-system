@@ -16,6 +16,8 @@ import LeadEditPage from "@/pages/leads/LeadEditPage";
 import LeadCreatePage from "@/pages/leads/LeadCreatePage";
 import CallsPage from "@/pages/calls/CallsPage";
 import CallDetailPage from "@/pages/calls/CallDetailPage";
+import ConversationsPage from "@/pages/conversations/ConversationsPage";
+import ConversationDetailPage from "@/pages/conversations/ConversationDetailPage";
 import QualificationsPage from "@/pages/qualifications/QualificationsPage";
 import QualificationDetailPage from "@/pages/qualifications/QualificationDetailPage";
 import FollowupsPage from "@/pages/followups/FollowupsPage";
@@ -83,6 +85,9 @@ export function Router() {
 
       {appRoute("/calls", "/calls", <CallsPage />)}
       {appRoute("/calls/:id", "/calls", <CallDetailPage />)}
+
+      {appRoute("/conversations", "/conversations", <ConversationsPage />)}
+      {appRoute("/conversations/:id", "/conversations", <ConversationDetailPage />)}
 
       {appRoute("/qualifications", "/qualifications", <QualificationsPage />)}
       {appRoute("/qualifications/:id", "/qualifications", <QualificationDetailPage />)}

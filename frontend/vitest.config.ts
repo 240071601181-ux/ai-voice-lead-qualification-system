@@ -14,6 +14,12 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    include: [
+      "server/**/*.test.ts",
+      "server/**/*.spec.ts",
+      // Phase 9: node-safe client tests (API services + pure view helpers,
+      // network boundary mocked). No DOM/renderer tests: no jsdom here.
+      "client/src/**/*.test.ts",
+    ],
   },
 });

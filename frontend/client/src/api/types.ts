@@ -111,7 +111,10 @@ export interface QualificationDetails {
 
 export interface Qualification {
   id: string;
-  call_id: string;
+  /** Null for text-conversation qualifications (backend Phase 6+). */
+  call_id: string | null;
+  /** Primary anchor for text-conversation qualifications. */
+  conversation_id?: string | null;
   lead_id?: string | null;
   score: number;
   tier: QualificationTier;
@@ -645,4 +648,153 @@ export interface AgentHealth {
   /** Always null: no aggregate telemetry is collected backend-side. */
   metrics: null;
   metricsReason: string;
+}
+
+// ---------------------------------------------------------------------------
+// Conversations  (backend: src/models/Conversation.ts +
+// src/controllers/conversationController.ts +
+// src/controllers/conversationCalendarController.ts)
+//
+// Text conversations live in the Express/PostgreSQL backend. Every record
+// below comes from those endpoints — this UI never invents conversations,
+// messages, slots, or scores.
+// ---------------------------------------------------------------------------
+
+export type ConversationChannel = "web" | "whatsapp" | "legacy_voice";
+
+export type ConversationStatus = "active" | "completed" | "abandoned";
+
+export interface Conversation {
+  id: string;
+  lead_id?: string | null;
+  channel: ConversationChannel;
+  status: ConversationStatus;
+  started_at?: string | null;
+  ended_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ConversationMessageRole = "system" | "user" | "assistant" | "tool";
+
+export interface ConversationMessage {
+  id: string;
+  conversation_id: string;
+  role: ConversationMessageRole;
+  content: string;
+  metadata?: Record<string, unknown> | null;
+  tool_calls?: unknown | null;
+  created_at: string;
+}
+
+export interface ConversationLeadSummary {
+  id: string;
+  name: string;
+  phone: string;
+  status: string;
+}
+
+export interface ConversationDetail {
+  conversation: Conversation;
+  lead: (ConversationLeadSummary & { email?: string | null }) | null;
+  messageCount: number;
+  status: ConversationStatus;
+}
+
+export interface ListConversationsInput {
+  leadId?: string;
+  status?: ConversationStatus;
+  channel?: ConversationChannel;
+  page?: number;
+  limit?: number;
+}
+
+export interface ConversationListResult {
+  conversations: Conversation[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface CreateConversationInput {
+  leadId?: string | null;
+  channel?: ConversationChannel;
+}
+
+export interface ConversationMessageListResult {
+  messages: ConversationMessage[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface SendConversationMessageResult {
+  conversation: Conversation;
+  userMessage: ConversationMessage;
+  assistantMessage: ConversationMessage;
+  /** Persisted qualification when the turn triggered (re)qualification, else null. */
+  qualification: Qualification | null;
+}
+
+/** Structured logistics slots (backend conversation_states row, or null). */
+export interface ConversationState {
+  id: string;
+  conversation_id: string;
+  lead_id?: string | null;
+  customer_name?: string | null;
+  pickup_location?: string | null;
+  destination?: string | null;
+  vehicle_type?: string | null;
+  cargo_type?: string | null;
+  cargo_weight?: number | string | null;
+  cargo_dimensions?: string | null;
+  required_date?: string | null;
+  budget?: number | string | null;
+  urgency?: string | null;
+  booking_intent?: "explicit" | "not_explicit" | "unknown" | null;
+  additional_requirements?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationAvailabilityQuery {
+  start: string;
+  end: string;
+  timezone?: string | null;
+}
+
+export interface ConversationAvailabilityResult {
+  available: boolean;
+}
+
+export interface BookConversationMeetingInput {
+  start: string;
+  end: string;
+  timezone?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  notes?: string | null;
+  description?: string | null;
+}
+
+export interface ConversationBooking {
+  id: string;
+  booking_key: string;
+  lead_id: string | null;
+  call_id: string | null;
+  conversation_id: string | null;
+  qualification_id: string | null;
+  provider: string;
+  calendar_id: string | null;
+  external_event_id: string | null;
+  meet_url: string | null;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  timezone: string | null;
+  status: string;
+  attempts: number;
+  slot_hash: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
 }

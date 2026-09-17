@@ -21,9 +21,12 @@ export type * from "./types";
 
 export * as leadsApi from "./services/leads";
 export * as callsApi from "./services/calls";
+export * as conversationsApi from "./services/conversations";
+export { getChatToken, setChatToken, clearChatToken, getChatAuthHeader } from "./chatToken";
 export * as agentApi from "./services/agent";
 export * as leadsHooks from "./hooks/useLeads";
 export * as callsHooks from "./hooks/useCalls";
+export * as conversationsHooks from "./hooks/useConversations";
 export * as qualificationsHooks from "./hooks/useQualifications";
 export * as followupsHooks from "./hooks/useFollowups";
 export * as calendarHooks from "./hooks/useCalendar";
