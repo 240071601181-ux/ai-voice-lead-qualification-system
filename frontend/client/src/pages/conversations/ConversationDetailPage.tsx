@@ -12,7 +12,7 @@ import {
   toLogisticsStateRows,
   toVisibleMessages,
 } from "@/components/app/conversationView";
-import { getChatToken } from "@/api/chatToken";
+import { getChatToken, handleChatUnauthorizedOnce } from "@/api/chatToken";
 import { ApiError } from "@/api/errors";
 import {
   useAbandonConversationMutation,
@@ -136,6 +136,8 @@ function ConversationDetailPage() {
   const [, navigate] = useLocation();
   const [sendError, setSendError] = useState<string | null>(null);
   const [tokenOpen, setTokenOpen] = useState(false);
+  // Bumped when chat-auth state changes so the Connect action re-renders.
+  const [, setAuthTick] = useState(0);
 
   const detail = useConversationQuery(id);
   const messages = useConversationMessagesQuery(id, 100);
@@ -161,7 +163,15 @@ function ConversationDetailPage() {
   const handleSend = (content: string) => {
     setSendError(null);
     send.mutate(content, {
-      onError: (error) => setSendError(conversationErrorCopy(error)),
+      onError: (error) => {
+        // Single-shot: a rejected saved token is cleared once (no loop) and
+        // the header flips back to the Connect action below.
+        if (error instanceof ApiError && error.kind === "unauthorized") {
+          handleChatUnauthorizedOnce();
+          setAuthTick((tick) => tick + 1);
+        }
+        setSendError(conversationErrorCopy(error));
+      },
     });
   };
 
@@ -295,7 +305,7 @@ function ConversationDetailPage() {
         <LogisticsStatePanel conversationId={id} />
         <MeetingPanel conversationId={id} />
       </aside>
-      <ChatTokenDialog open={tokenOpen} onOpenChange={setTokenOpen} onConnected={() => { void detail.refetch(); void messages.refetch(); }} />
+      <ChatTokenDialog open={tokenOpen} onOpenChange={setTokenOpen} onConnected={() => { setAuthTick((tick) => tick + 1); void detail.refetch(); void messages.refetch(); }} />
     </div>
   );
 }

@@ -86,6 +86,32 @@ export const findQualificationByConversationId = async (
   return result.rows[0] || null;
 };
 
+/**
+ * Phase 10: minimal read endpoints for the qualifications UI (no scoring
+ * changes). Paginated newest-first list plus direct by-id lookup so
+ * conversation-anchored rows (which have no callId) are viewable.
+ */
+export const findQualificationById = async (id: string): Promise<Qualification | null> => {
+  const result = await pool.query('SELECT * FROM qualifications WHERE id = $1', [id]);
+  return result.rows[0] || null;
+};
+
+export const listQualifications = async (args: {
+  limit: number;
+  offset: number;
+}): Promise<Qualification[]> => {
+  const result = await pool.query(
+    'SELECT * FROM qualifications ORDER BY qualified_at DESC, id DESC LIMIT $1 OFFSET $2',
+    [args.limit, args.offset]
+  );
+  return result.rows;
+};
+
+export const countQualifications = async (): Promise<number> => {
+  const result = await pool.query('SELECT COUNT(*) AS total FROM qualifications');
+  return Number(result.rows[0]?.total ?? 0);
+};
+
 export const findLatestQualificationByLeadId = async (leadId: string): Promise<Qualification | null> => {
   const result = await pool.query(
     'SELECT * FROM qualifications WHERE lead_id = $1 ORDER BY qualified_at DESC LIMIT 1',

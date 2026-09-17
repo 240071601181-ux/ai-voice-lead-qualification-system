@@ -165,4 +165,14 @@ describe("conversations API service", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).kind).toBe("network");
   });
+
+  it("clears a rejected token once instead of looping, then prompts connect", async () => {
+    const { handleChatUnauthorizedOnce } = await import("@/api/chatToken");
+    mem.set("chat-jwt", "tok-stale");
+    mockFetchOnce(401, { success: false, error: { message: "Invalid or expired token", code: 401 } });
+    const error = await listConversations({}).catch((e) => e);
+    expect((error as ApiError).kind).toBe("unauthorized");
+    expect(handleChatUnauthorizedOnce()).toBe(true);
+    expect(handleChatUnauthorizedOnce()).toBe(false);
+  });
 });

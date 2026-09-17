@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { FileText, MessageSquareText, Search, User } from "lucide-react";
+import { FileText, MessageSquareText, Search, Target, User } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Command,
@@ -12,8 +12,10 @@ import {
 } from "@/components/ui/command";
 import { useLeadsQuery } from "@/api/hooks/useLeads";
 import { useConversationsQuery } from "@/api/hooks/useConversations";
+import { useQualificationsListQuery } from "@/api/hooks/useQualifications";
 import { getUserMessage } from "@/api/errors";
 import { filterSearchPages } from "@/components/app/searchIndex";
+import { filterConversationRecords, filterQualificationRecords } from "@/components/app/searchFilter";
 
 const LEAD_SEARCH_LIMIT = 8;
 const DEBOUNCE_MS = 250;
@@ -34,6 +36,9 @@ function useDebouncedValue(value: string, delayMs: number): string {
  * - Lead results are LIVE from GET /api/v1/leads (debounced). Only the
  *   backend-supported searchable fields are used (name, phone, email,
  *   source, status — see leadRepository.searchWhere). No fake lead records.
+ * - Conversation and qualification results are LIVE from their list
+ *   endpoints, filtered client-side (those endpoints have no text search).
+ *   No fake conversation or qualification records.
  * - Page results are the real application routes (labels mirror the
  *   sidebar); no backend involved and no endpoints invented.
  * - Selecting a lead navigates to the real /leads/:id page (deep-link
@@ -72,15 +77,19 @@ export function GlobalSearch() {
     { page: 1, limit: 20 },
     { enabled: open && trimmed.length > 0 }
   );
-  const conversations = useMemo(() => {
-    if (trimmed.length === 0) return [];
-    const q = trimmed.toLowerCase();
-    return (conversationSearch.data?.conversations ?? [])
-      .filter((c) =>
-        `${c.id} ${c.lead_id ?? ""} ${c.channel} ${c.status}`.toLowerCase().includes(q)
-      )
-      .slice(0, 5);
-  }, [conversationSearch.data, trimmed]);
+  const conversationHits = useMemo(
+    () => filterConversationRecords(conversationSearch.data?.conversations ?? [], trimmed),
+    [conversationSearch.data, trimmed]
+  );
+
+  // Qualifications: same pattern over the real list endpoint (id/tier/score/lead).
+  const qualificationSearch = useQualificationsListQuery(1, 50, {
+    enabled: open && trimmed.length > 0,
+  });
+  const qualificationHits = useMemo(
+    () => filterQualificationRecords(qualificationSearch.data?.qualifications ?? [], trimmed),
+    [qualificationSearch.data, trimmed]
+  );
 
   const pages = useMemo(() => filterSearchPages(query), [query]);
 
@@ -150,9 +159,9 @@ export function GlobalSearch() {
                   ))}
                 </CommandGroup>
               ) : null}
-              {conversations.length > 0 ? (
+              {conversationHits.length > 0 ? (
                 <CommandGroup heading="Conversations">
-                  {conversations.map((c) => (
+                  {conversationHits.map((c) => (
                     <CommandItem
                       key={c.id}
                       value={`conversation ${c.id}`}
@@ -160,13 +169,35 @@ export function GlobalSearch() {
                     >
                       <MessageSquareText />
                       <span>
-                        <b>{c.lead_id ? `Lead ${c.lead_id.slice(0, 8)}` : "No lead"}</b>
+                        <b>{c.title}</b>
                         <small style={{ display: "block", opacity: 0.7 }}>
-                          {c.id}
+                          {c.subtitle}
                         </small>
                       </span>
                       <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.7 }}>
-                        {[c.channel, c.status].filter(Boolean).join(" · ")}
+                        {c.meta}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+              {qualificationHits.length > 0 ? (
+                <CommandGroup heading="Qualifications">
+                  {qualificationHits.map((hit) => (
+                    <CommandItem
+                      key={hit.id}
+                      value={`qualification ${hit.id}`}
+                      onSelect={() => go(`/qualifications/${hit.id}`)}
+                    >
+                      <Target />
+                      <span>
+                        <b>{hit.title}</b>
+                        <small style={{ display: "block", opacity: 0.7 }}>
+                          {hit.subtitle}
+                        </small>
+                      </span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.7 }}>
+                        {hit.meta}
                       </span>
                     </CommandItem>
                   ))}

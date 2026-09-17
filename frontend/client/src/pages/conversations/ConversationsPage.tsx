@@ -4,9 +4,9 @@ import { ChevronLeft, ChevronRight, KeyRound, MessageSquarePlus, Search } from "
 import { Button, Card, TierBadge } from "@/components/app/ui";
 import { LeadPicker } from "@/components/app/LeadPicker";
 import { ChatTokenDialog } from "@/components/app/ChatTokenDialog";
-import { NO_CONVERSATIONS_COPY } from "@/components/app/conversationView";
-import { getChatToken } from "@/api/chatToken";
-import { getUserMessage } from "@/api/errors";
+import { NO_CONVERSATIONS_COPY, conversationErrorCopy } from "@/components/app/conversationView";
+import { getChatToken, handleChatUnauthorizedOnce } from "@/api/chatToken";
+import { ApiError } from "@/api/errors";
 import { useConversationsQuery, useCreateConversationMutation } from "@/api/hooks/useConversations";
 import { useConversationQualificationQuery } from "@/api/hooks/useConversations";
 import type { Conversation } from "@/api/types";
@@ -88,6 +88,16 @@ function ConversationsPage() {
     );
   };
 
+  // Truthful 401 handling: a rejected saved token is cleared once (no retry
+  // loop) and the UI flips to the connect state; other failures show the
+  // safe copy with a plain retry. Never "session expired" for chat-auth.
+  const listUnauthorized = list.isError && list.error instanceof ApiError && list.error.kind === "unauthorized";
+  const connectForList = () => {
+    handleChatUnauthorizedOnce();
+    setConnected(getChatToken() !== null);
+    setTokenOpen(true);
+  };
+
   return (
     <>
       <div className="page-heading">
@@ -147,7 +157,7 @@ function ConversationsPage() {
               {list.isPending ? (
                 <tr><td colSpan={5}><div className="empty-state"><b>Loading conversations…</b></div></td></tr>
               ) : list.isError ? (
-                <tr><td colSpan={5}><div className="empty-state"><b>Couldn&apos;t load conversations</b><span>{getUserMessage(list.error)}</span><Button variant="secondary" onClick={() => { void list.refetch(); }}>Retry</Button></div></td></tr>
+                <tr><td colSpan={5}><div className="empty-state"><b>Couldn&apos;t load conversations</b><span>{conversationErrorCopy(list.error)}</span>{listUnauthorized ? <Button variant="secondary" onClick={connectForList}>Connect chat</Button> : <Button variant="secondary" onClick={() => { void list.refetch(); }}>Retry</Button>}</div></td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={5}><div className="empty-state"><b>{NO_CONVERSATIONS_COPY}</b></div></td></tr>
               ) : (
@@ -186,7 +196,7 @@ function ConversationsPage() {
           </DialogHeader>
           <LeadPicker value={leadId} onChange={setLeadId} disabled={create.isPending} />
           {create.isError ? (
-            <p className="text-sm text-destructive">{getUserMessage(create.error)}</p>
+            <p className="text-sm text-destructive">{conversationErrorCopy(create.error)}</p>
           ) : null}
           <DialogFooter>
             <Button variant="secondary" onClick={() => setNewOpen(false)}>Cancel</Button>

@@ -5,59 +5,13 @@ import { Button, Card, TierBadge } from "@/components/app/ui";
 import { NotFoundState } from "@/components/app/NotFoundState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/layouts/AppLayout";
-import { findLead, findQualification } from "@/mock/details";
-import type { MockQualification } from "@/mock/details";
 import {
   useCreateQualificationMutation,
-  useQualificationDetailWithMockFallback,
+  useQualificationDetail,
 } from "@/api/hooks/useQualifications";
 import type { QualificationLookup } from "@/api/hooks/useQualifications";
 import { criterionDisplayRows, formatQualifiedAt } from "@/api/hooks/qualificationDisplay";
 import { ApiError, getUserMessage } from "@/api/errors";
-
-/** Demo-only qualification detail from mock fixtures. Same visual language as the lead qualification tab. */
-function MockQualificationView({ qual }: { qual: MockQualification }) {
-  const [, navigate] = useLocation();
-  const lead = findLead(qual.leadId);
-
-  return (
-    <>
-      <button className="back-link" onClick={() => navigate("/qualifications")}><ChevronLeft size={15} />Back to qualifications</button>
-      <div className="detail-grid">
-        <Card className="tab-panel">
-          <div className="card-header">
-            <div><span className="section-kicker">QUALIFICATION MODEL</span><h2>Signal breakdown</h2></div>
-            <TierBadge tier={qual.tier} />
-          </div>
-          <div className="qualification-hero">
-            <strong>{qual.score}</strong><span>out of 100</span>
-            <p>{lead ? `${lead.name} · ${lead.company} · ${qual.route}` : qual.route}</p>
-          </div>
-          <div className="factor-bars wide">
-            {qual.factors.map(([name, score, width]) => (
-              <div key={name}><span>{name}</span><div><i style={{ width: `${width}%` }} /></div><b>{score}</b></div>
-            ))}
-          </div>
-        </Card>
-        <Card className="explanation-card">
-          <span className="section-kicker">MODEL EXPLANATION</span>
-          <h2>Why this lead is {qual.tier.toLowerCase()}</h2>
-          <p>Deterministic scoring over urgency, budget, route, vehicle, cargo, and booking intent. Record {qual.id}.</p>
-          <div className="explanation-points">
-            <span><CheckCircle2 size={15} />Route confirmed</span>
-            <span><CheckCircle2 size={15} />Budget in range</span>
-            <span><CheckCircle2 size={15} />Decision maker engaged</span>
-            <span><CheckCircle2 size={15} />Pickup window set</span>
-          </div>
-          <div className="card-header" style={{ marginTop: 18 }}>
-            <div><span className="section-kicker">LINKED RECORD</span><h2>Lead</h2></div>
-            <button className="more-btn" onClick={() => lead && navigate(`/leads/${lead.id}`)}><MoreHorizontal size={17} /></button>
-          </div>
-        </Card>
-      </div>
-    </>
-  );
-}
 
 /**
  * Live backend qualification view. Renders ONLY backend-computed values
@@ -80,7 +34,14 @@ function ApiQualificationView({ lookup }: { lookup: QualificationLookup }) {
           </div>
           <div className="qualification-hero">
             <strong>{qual.score}</strong><span>out of 100</span>
-            <p>Call {qual.call_id}{qual.lead_id ? ` · Lead ${qual.lead_id}` : ""} · qualified {formatQualifiedAt(qual.qualified_at)}</p>
+            <p>
+              {qual.call_id
+                ? `Call ${qual.call_id}`
+                : qual.conversation_id
+                  ? `Conversation ${qual.conversation_id}`
+                  : "No anchor"}
+              {qual.lead_id ? ` · Lead ${qual.lead_id}` : ""} · qualified {formatQualifiedAt(qual.qualified_at)}
+            </p>
           </div>
           <div className="factor-bars wide">
             {rows.map((row) => (
@@ -117,18 +78,16 @@ function ApiQualificationView({ lookup }: { lookup: QualificationLookup }) {
 }
 
 /**
- * Phase 14C-5 — Qualification detail backed by the real backend where an
- * associated lead/call record exists:
- *   GET /api/v1/qualifications/leads/:leadId (then calls/:callId for raw ids)
+ * Qualification detail backed entirely by the backend:
+ *   GET /api/v1/qualifications/:id (then leads/:leadId, then calls/:callId)
  *   POST /api/v1/qualifications (re-run, call-associated records only)
- * Demo ids without a backend record keep the mock view with a demo badge.
+ * Unknown ids render a true not-found state — no demo fallback.
  */
 export default function QualificationDetailPage() {
   const params = useParams();
   const { notify } = useToast();
   const id = params.id ?? "";
-  const mockQual = findQualification(id);
-  const detail = useQualificationDetailWithMockFallback(id, mockQual?.leadId, !!mockQual);
+  const detail = useQualificationDetail(id);
   const rerunMutation = useCreateQualificationMutation();
   const [rerunError, setRerunError] = useState<string | null>(null);
 
@@ -170,27 +129,7 @@ export default function QualificationDetailPage() {
     );
   }
 
-  if (detail.source === "mock" && mockQual) {
-    return (
-      <>
-        <Card className="tab-panel" style={{ marginBottom: 12, padding: "10px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span className="section-kicker" style={{ margin: 0 }}>DEMO DATA</span>
-            <span style={{ fontSize: 10, color: "#8190a1" }}>
-              {detail.apiError
-                ? `Backend lookup failed (${getUserMessage(detail.apiError)}). Showing the demo record so the UI keeps working.`
-                : "Demo qualification — the backend has no record for this demo id."}
-            </span>
-          </div>
-        </Card>
-        <MockQualificationView qual={mockQual} />
-      </>
-    );
-  }
-
-  // detail.source === "api" (mock ids always resolve through the mock branch
-  // above, so reaching here implies a live backend record).
-  if (detail.source !== "api") return <NotFoundState label="Qualification" backPath="/qualifications" />;
+  // Only backend records reach here — unknown ids resolve to not-found/error above.
   const { qualification } = detail.lookup;
 
   const handleRerun = () => {

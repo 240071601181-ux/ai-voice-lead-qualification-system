@@ -67,4 +67,11 @@ export function demoLogout(): void {
   } catch {
     // Ignore storage errors; best effort.
   }
+  // Phase 10: drop the tab-scoped chat token too — a new login must not
+  // inherit the previous session's conversation credential.
+  try {
+    sessionStorage.removeItem("chat-jwt");
+  } catch {
+    // Ignore storage errors; best effort.
+  }
 }

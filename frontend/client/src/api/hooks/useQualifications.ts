@@ -19,16 +19,21 @@ import { ApiError } from "../errors";
 import {
   createQualification,
   getQualificationByCall,
+  getQualificationById,
   getQualificationByLead,
+  listQualifications,
 } from "../services/qualifications";
 import type { CreateQualificationInput, Lead as ApiLead, Qualification as ApiQualification } from "../types";
 import { useLeadsQuery } from "./useLeads";
 
 export const qualificationKeys = {
   all: ["qualifications"] as const,
+  lists: () => [...qualificationKeys.all, "list"] as const,
+  list: (page: number, limit: number) => [...qualificationKeys.lists(), page, limit] as const,
+  byId: (id: string) => [...qualificationKeys.all, "id", id] as const,
   byLead: (leadId: string) => [...qualificationKeys.all, "lead", leadId] as const,
   byCall: (callId: string) => [...qualificationKeys.all, "call", callId] as const,
-  /** Lookup backing the /qualifications/:id page (lead-first, then call). */
+  /** Lookup backing the /qualifications/:id page (by-id, then lead, then call). */
   detail: (id: string) => [...qualificationKeys.all, "detail", id] as const,
 };
 
@@ -53,6 +58,29 @@ function toError(error: unknown): ApiError | Error {
 export interface QualificationLookup {
   qualification: ApiQualification;
   via: "lead" | "call";
+}
+
+/** Paginated backend qualification list (all anchors), newest first. */
+export function useQualificationsListQuery(page: number, limit: number, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: qualificationKeys.list(page, limit),
+    queryFn: () => listQualifications(page, limit),
+    retry: shouldRetry,
+    staleTime: 15_000,
+    placeholderData: (previousData) => previousData,
+    enabled: opts?.enabled ?? true,
+  });
+}
+
+/** Backend qualification by its own id (call- and conversation-anchored). */
+export function useQualificationById(id: string | undefined) {
+  return useQuery({
+    queryKey: qualificationKeys.byId(id ?? ""),
+    queryFn: () => getQualificationById(id as string),
+    enabled: !!id,
+    retry: shouldRetry,
+    staleTime: 30_000,
+  });
 }
 
 /** Latest qualification for a backend lead id. Enabled only when present. */
@@ -101,26 +129,13 @@ export function useCreateQualificationMutation() {
 export type QualificationDetailResult =
   | { status: "loading" }
   | { status: "ready"; source: "api"; lookup: QualificationLookup; refetch: () => void }
-  | {
-      status: "ready";
-      source: "mock";
-      /** Backend error that caused the mock fallback (null when never attempted). */
-      apiError: ApiError | Error | null;
-      refetch: () => void;
-    }
   | { status: "not-found" }
   | { status: "error"; error: ApiError | Error; refetch: () => void };
 
 /**
- * Detail resolution for /qualifications/:id.
- *
- * The backend cannot fetch by qualification id, so the page resolves through
- * associated records: when `leadId` is known (e.g. from the mock fixture the
- * id points at) it is tried first, otherwise the raw route id is tried as a
- * backend lead id and then as a backend call id. When every backend lookup
- * 404s but the id matches a known demo qualification, the demo record is
- * shown (with the backend error exposed for badging). Genuine backend ids
- * surface true loading / not-found / error states.
+ * Detail resolution for /qualifications/:id. All backend, no mock fallback:
+ * direct by-id lookup first (covers call- and conversation-anchored rows),
+ * then the raw route id as a lead id, then as a call id.
  */
 export function useQualificationDetail(
   id: string | undefined,
@@ -130,6 +145,12 @@ export function useQualificationDetail(
     queryKey: qualificationKeys.detail(id ?? ""),
     queryFn: async (): Promise<QualificationLookup> => {
       const routeId = id as string;
+      try {
+        const qualification = await getQualificationById(routeId);
+        return { qualification, via: qualification.call_id ? "call" : "lead" };
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.kind !== "not-found") throw error;
+      }
       // Lead-first: associated lead when known, else the raw route id.
       const leadCandidates = [leadId, leadId ? undefined : routeId].filter(
         (v): v is string => !!v
@@ -167,28 +188,6 @@ export function useQualificationDetail(
     return { status: "error", error: toError(query.error), refetch };
   }
   return { status: "loading" };
-}
-
-/**
- * Variant for ids that match a demo fixture: backend is attempted through
- * the associated lead, but a 404 falls back to the demo record instead of a
- * not-found state so the mock UI keeps working.
- */
-export function useQualificationDetailWithMockFallback(
-  id: string | undefined,
-  leadId: string | undefined,
-  hasMock: boolean
-): QualificationDetailResult {
-  const result = useQualificationDetail(id, leadId);
-  if (hasMock) {
-    if (result.status === "error") {
-      return { status: "ready", source: "mock", apiError: result.error, refetch: result.refetch };
-    }
-    if (result.status === "not-found") {
-      return { status: "ready", source: "mock", apiError: null, refetch: () => undefined };
-    }
-  }
-  return result;
 }
 
 export interface QualificationRow {
