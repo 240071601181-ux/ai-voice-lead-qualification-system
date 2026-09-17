@@ -48,6 +48,22 @@ export const listMessagesByConversationId = async (
   return res.rows;
 };
 
+/** Chronological page for history endpoints. */
+export const listMessagesPage = async (
+  conversationId: string,
+  limit: number,
+  offset: number
+): Promise<ConversationMessage[]> => {
+  const res = await pool.query(
+    `SELECT * FROM conversation_messages
+     WHERE conversation_id = $1
+     ORDER BY created_at ASC, id ASC
+     LIMIT $2 OFFSET $3`,
+    [conversationId, limit, offset]
+  );
+  return res.rows;
+};
+
 export const countMessagesByConversationId = async (conversationId: string): Promise<number> => {
   const res = await pool.query(
     'SELECT COUNT(*) AS total FROM conversation_messages WHERE conversation_id = $1',

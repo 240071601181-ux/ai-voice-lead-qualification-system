@@ -49,6 +49,61 @@ export const listConversationsByLeadId = async (leadId: string): Promise<Convers
   return res.rows;
 };
 
+export interface ListConversationsFilter {
+  leadId?: string;
+  status?: ConversationStatus;
+  channel?: ConversationChannel;
+  limit: number;
+  offset: number;
+}
+
+/** Filtered, paginated list with deterministic newest-first ordering. */
+export const listConversations = async (filter: ListConversationsFilter): Promise<Conversation[]> => {
+  const conditions: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+  if (filter.leadId) {
+    conditions.push(`lead_id = $${idx++}`);
+    values.push(filter.leadId);
+  }
+  if (filter.status) {
+    conditions.push(`status = $${idx++}`);
+    values.push(filter.status);
+  }
+  if (filter.channel) {
+    conditions.push(`channel = $${idx++}`);
+    values.push(filter.channel);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  values.push(filter.limit, filter.offset);
+  const res = await pool.query(
+    `SELECT * FROM conversations ${where} ORDER BY created_at DESC, id DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    values
+  );
+  return res.rows;
+};
+
+export const countConversations = async (filter: Omit<ListConversationsFilter, 'limit' | 'offset'>): Promise<number> => {
+  const conditions: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+  if (filter.leadId) {
+    conditions.push(`lead_id = $${idx++}`);
+    values.push(filter.leadId);
+  }
+  if (filter.status) {
+    conditions.push(`status = $${idx++}`);
+    values.push(filter.status);
+  }
+  if (filter.channel) {
+    conditions.push(`channel = $${idx++}`);
+    values.push(filter.channel);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const res = await pool.query(`SELECT COUNT(*) AS total FROM conversations ${where}`, values);
+  return Number(res.rows[0]?.total ?? 0);
+};
+
 export const updateConversationStatus = async (
   id: string,
   status: ConversationStatus
