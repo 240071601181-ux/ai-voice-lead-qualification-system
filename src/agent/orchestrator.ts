@@ -1,12 +1,24 @@
 import { agentConfig } from './config';
 import { getAgentPromptContext } from '../services/agentConfigService';
 import { getLlmProvider, LlmMessage, LlmResponse, LlmToolDefinition } from './llm';
-import { getStateByCallId } from '../services/conversationStateService';
+import { getStateByCallId, getStateByConversationId } from '../services/conversationStateService';
+import {
+  AgentContext,
+  ConversationChannel,
+  resolveAgentIdentity,
+} from './conversation';
 import { searchKnowledge } from '../services/knowledgeService';
 import { logger } from '../utils/logger';
 
 export interface ProcessTurnOptions {
+  /** Preferred identity for text conversations (Phase 1). */
+  conversationId?: string;
+  /** Legacy identity for voice/Vapi calls (compatibility, do not remove yet). */
   callId?: string;
+  /** Optional transport-independent context; explicit options above take precedence. */
+  context?: AgentContext;
+  /** Transport channel for this turn (informational in Phase 1). */
+  channel?: ConversationChannel;
   messages: LlmMessage[];
   tools?: LlmToolDefinition[];
   stream?: boolean;
@@ -33,17 +45,34 @@ export class AgentOrchestrator {
    * Process a normalized turn in a Vapi-independent manner.
    */
   async processTurn(options: ProcessTurnOptions): Promise<LlmResponse> {
-    const { callId, messages, tools, stream, onStreamChunk } = options;
+    const { messages, tools, stream, onStreamChunk } = options;
+    // Explicit turn options win; the reusable context object fills the gaps.
+    const effectiveContext: AgentContext = {
+      conversationId: options.conversationId ?? options.context?.conversationId ?? null,
+      callId: options.callId ?? options.context?.callId ?? null,
+      leadId: options.context?.leadId ?? null,
+      channel: options.channel ?? options.context?.channel ?? null,
+    };
+    const identity = resolveAgentIdentity(effectiveContext);
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')?.content || '';
 
-    logger.info('AgentOrchestrator processing turn', { callId, userMessage: lastUserMsg });
+    logger.info('AgentOrchestrator processing turn', {
+      conversationId: identity.conversationId ?? null,
+      callId: identity.callId ?? null,
+      channel: effectiveContext.channel ?? null,
+      userMessage: lastUserMsg,
+    });
 
-    // 1. Fetch current conversation state from Phase 5 service if callId provided
+    // 1. Fetch current conversation state. Preferred path resolves by
+    // conversationId; the legacy path resolves by callId exactly as before.
     let stateContextStr = '';
-    if (callId) {
-      try {
-        const state = await getStateByCallId(callId);
-        if (state) {
+    try {
+      const state = identity.kind === 'conversation'
+        ? await getStateByConversationId(identity.conversationId as string)
+        : identity.kind === 'call'
+          ? await getStateByCallId(identity.callId as string)
+          : null;
+      if (state) {
           stateContextStr = `\n\nCURRENT CONVERSATION STATE:\n` +
             `- Customer Name: ${state.customer_name || 'Not provided'}\n` +
             `- Pickup Location: ${state.pickup_location || 'Not provided'}\n` +
@@ -59,7 +88,6 @@ export class AgentOrchestrator {
       } catch (err: any) {
         logger.error('Error fetching conversation state in AgentOrchestrator', { error: err.message });
       }
-    }
 
     // 2. Selective RAG Knowledge Retrieval (Phase 6 integration)
     let ragContextStr = '';
