@@ -1,7 +1,14 @@
 import { ConversationState } from '../models/ConversationState';
+import { ConversationStateRecord } from '../models/Conversation';
 import { BookingIntent, Qualification, QualificationDetails, QualificationTier } from '../models/Qualification';
 import { findCallById } from '../repositories/callRepository';
-import { upsertQualification } from '../repositories/qualificationRepository';
+import {
+  findQualificationByConversationId,
+  upsertConversationQualification,
+  upsertQualification,
+} from '../repositories/qualificationRepository';
+import { findConversationById } from '../repositories/conversationRepository';
+import { findConversationStateByConversationId } from '../repositories/conversationStatesRepository';
 import { getStateByCallId } from './conversationStateService';
 import { logger } from '../utils/logger';
 
@@ -112,4 +119,142 @@ export const qualifyCall = async (callId: string, qualifiedAt = new Date()): Pro
   });
   logger.info('Lead qualification completed', { callId, score: result.score, tier: result.tier });
   return qualification;
+};
+
+const qualificationError = (status: number, message: string): any => {
+  const err: any = new Error(message);
+  err.status = status;
+  return err;
+};
+
+export interface QualifyConversationOptions {
+  /**
+   * Preserved only for bridged legacy conversations that already have a
+   * call row. Never invented for text: web/WhatsApp rows persist with
+   * call_id NULL.
+   */
+  callId?: string | null;
+}
+
+/**
+ * Phase 6 — conversation-based qualification.
+ *
+ * A. fetch conversation (trusted record, not caller input)
+ * B. resolve trusted leadId from the conversation (never from arguments)
+ * C. fetch conversation_states (the scoring source for text)
+ * D. calculate via the existing deterministic scorer (unchanged weights)
+ * E. idempotent persist anchored on conversation_id (single row per
+ *    conversation; re-qualification updates in place)
+ * F. return the persisted result
+ *
+ * Rejects (with err.status for the controller): missing conversation (404),
+ * missing lead (422), missing state row (422). The legacy qualifyCall()
+ * above is untouched.
+ */
+export const qualifyConversation = async (
+  conversationId: string,
+  qualifiedAt = new Date(),
+  options: QualifyConversationOptions = {}
+): Promise<Qualification> => {
+  if (!conversationId || typeof conversationId !== 'string') {
+    throw qualificationError(400, 'conversationId is required and must be a string');
+  }
+  const conversation = await findConversationById(conversationId);
+  if (!conversation) {
+    throw qualificationError(404, 'Conversation not found');
+  }
+  const leadId = conversation.lead_id ?? null;
+  if (!leadId) {
+    throw qualificationError(422, 'Conversation is not linked to a lead and cannot be qualified');
+  }
+  const state = await findConversationStateByConversationId(conversationId);
+  if (!state) {
+    throw qualificationError(422, 'No conversation state recorded for this conversation yet');
+  }
+  // Same slot shape as the legacy table; the scorer itself is reused as-is.
+  const result = calculateQualification(state as unknown as ConversationState, qualifiedAt);
+  const qualification = await upsertConversationQualification({
+    conversation_id: conversationId,
+    call_id: options.callId ?? null,
+    lead_id: leadId,
+    score: result.score,
+    tier: result.tier,
+    details: result.details,
+    qualified_at: qualifiedAt.toISOString(),
+  });
+  logger.info('Conversation qualification completed', {
+    conversationId,
+    leadId,
+    score: result.score,
+    tier: result.tier,
+  });
+  return qualification;
+};
+
+/**
+ * Deterministic auto-qualification gate (least disruptive rule):
+ * - explicit booking intent → qualify immediately, OR
+ * - route (pickup + destination) known AND ≥2 supporting criteria
+ *   (budget / vehicle / cargo / urgency) qualified, OR
+ * - otherwise → not yet (no premature qualification on thin state).
+ *
+ * Evaluated through the existing scorer's own criteria so the gate can
+ * never drift from the scoring rules.
+ */
+export const isQualificationReady = (
+  state: ConversationState | ConversationStateRecord | null | undefined,
+  qualifiedAt = new Date()
+): boolean => {
+  if (!state) return false;
+  const probe = calculateQualification(state as unknown as ConversationState, qualifiedAt);
+  const criteria = probe.details.criteria;
+  if (criteria.bookingIntent.qualified) return true;
+  if (!criteria.route.qualified) return false;
+  const supporting = [criteria.budget, criteria.vehicle, criteria.cargo, criteria.urgency].filter(
+    (c) => c.qualified
+  ).length;
+  return supporting >= 2;
+};
+
+export type AutoQualifyReason = 'state_changed' | 'tool_update' | 'completed' | 'manual';
+
+/**
+ * Controlled trigger: recalculates only when the gate passes. Persistence
+ * only — no CRM/WhatsApp/n8n/calendar fan-out in this phase, so no
+ * message → qualification → integration → message loop is possible.
+ * Never throws: auto-qualification must not break the chat turn.
+ */
+export const maybeAutoQualifyConversation = async (
+  conversationId: string,
+  reason: AutoQualifyReason = 'state_changed',
+  qualifiedAt = new Date()
+): Promise<Qualification | null> => {
+  try {
+    if (!conversationId || typeof conversationId !== 'string') return null;
+    const conversation = await findConversationById(conversationId);
+    if (!conversation || !conversation.lead_id) return null;
+    const state = await findConversationStateByConversationId(conversationId);
+    if (!isQualificationReady(state, qualifiedAt)) return null;
+    const qualification = await qualifyConversation(conversationId, qualifiedAt);
+    logger.info('Conversation auto-qualified', {
+      conversationId,
+      leadId: conversation.lead_id,
+      triggeredBy: reason,
+      score: qualification.score,
+      tier: qualification.tier,
+    });
+    return qualification;
+  } catch (err: any) {
+    logger.error('Conversation auto-qualification skipped safely', {
+      conversationId,
+      error: err?.message,
+    });
+    return null;
+  }
+};
+
+export const getQualificationByConversationId = async (
+  conversationId: string
+): Promise<Qualification | null> => {
+  return findQualificationByConversationId(conversationId);
 };

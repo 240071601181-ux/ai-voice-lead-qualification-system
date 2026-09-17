@@ -8,6 +8,11 @@ import { LlmMessage } from '../agent/llm';
 import { orchestrator } from '../agent/orchestrator';
 import { getChatMaxContextMessages, getChatMaxMessageLength } from '../config';
 import { extractAndPersistTextState } from '../services/conversationStateService';
+import {
+  getQualificationByConversationId,
+  maybeAutoQualifyConversation,
+  qualifyConversation,
+} from '../services/qualificationService';
 import { conversationService } from '../services/conversationService';
 import { conversationMessageService } from '../services/conversationMessageService';
 import {
@@ -308,9 +313,26 @@ export const postConversationMessageHandler = async (
       toolsExecuted,
       llmSuccess: true,
     });
+
+    // Phase 6: controlled re-qualification after real state changes
+    // (heuristic extraction or a successful updateConversationState tool).
+    // Persistence only — no integration fan-out, so no message →
+    // qualification → integration → message loop is possible.
+    // maybeAutoQualifyConversation never throws; gated on sufficient info.
+    let qualification: unknown = null;
+    const toolsUpdatedState = toolsExecuted.some(
+      (t) => t.name === 'updateConversationState' && t.success
+    );
+    if (stateChanged || toolsUpdatedState) {
+      qualification = await maybeAutoQualifyConversation(
+        conversation.id,
+        stateChanged ? 'state_changed' : 'tool_update'
+      );
+    }
+
     return res.status(201).json({
       success: true,
-      data: { conversation, userMessage, assistantMessage },
+      data: { conversation, userMessage, assistantMessage, qualification },
     });
   } catch (err) {
     return next(err);
@@ -336,13 +358,73 @@ const endConversationHandler = (status: 'completed' | 'abandoned') => {
           },
         });
       }
-      // No qualification or integration fan-out in this phase by design.
+      // No CRM/WhatsApp/n8n/calendar fan-out in this phase by design.
       const updated = await conversationService.endConversation(conversation.id, status);
-      return res.json({ success: true, data: updated });
+      // Phase 6: completion recalculates qualification when sufficient data
+      // exists (persistence only, no side effects). Abandoned conversations
+      // are never qualified.
+      let qualification: unknown = null;
+      if (status === 'completed') {
+        qualification = await maybeAutoQualifyConversation(conversation.id, 'completed');
+      }
+      return res.json({ success: true, data: { ...updated, qualification } });
     } catch (err) {
       return next(err);
     }
   };
+};
+
+/**
+ * Phase 6: manual conversation qualification.
+ * POST /api/v1/conversations/:id/qualification — same chat auth as the rest
+ * of this router. Calculates via the existing scorer and persists anchored
+ * on conversation_id (idempotent). Errors carry err.status (404/422).
+ */
+export const postConversationQualificationHandler = async (
+  req: ChatAuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const conversation = await conversationService.getConversation(req.params.id);
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Conversation not found', code: 404 },
+      });
+    }
+    const qualification = await qualifyConversation(conversation.id);
+    return res.status(201).json({ success: true, data: qualification });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+/** Read the persisted conversation qualification, if any. */
+export const getConversationQualificationHandler = async (
+  req: ChatAuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const conversation = await conversationService.getConversation(req.params.id);
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Conversation not found', code: 404 },
+      });
+    }
+    const qualification = await getQualificationByConversationId(conversation.id);
+    if (!qualification) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Qualification not found for this conversation', code: 404 },
+      });
+    }
+    return res.json({ success: true, data: qualification });
+  } catch (err) {
+    return next(err);
+  }
 };
 
 export const completeConversationHandler = endConversationHandler('completed');

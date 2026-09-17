@@ -9,9 +9,11 @@ import {
   completeConversationHandler,
   createConversationHandler,
   getConversationHandler,
+  getConversationQualificationHandler,
   listConversationMessagesHandler,
   listConversationsHandler,
   postConversationMessageHandler,
+  postConversationQualificationHandler,
 } from '../controllers/conversationController';
 
 const router = Router();
@@ -28,5 +30,8 @@ router.get('/:id/messages', listConversationMessagesHandler);
 router.post('/:id/messages', messageSendRateLimit, postConversationMessageHandler);
 router.post('/:id/complete', completeConversationHandler);
 router.post('/:id/abandon', abandonConversationHandler);
+// Phase 6: conversation qualification (same chat auth + rate limits).
+router.post('/:id/qualification', postConversationQualificationHandler);
+router.get('/:id/qualification', getConversationQualificationHandler);
 
 export default router;

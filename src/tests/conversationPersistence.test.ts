@@ -217,12 +217,13 @@ describe('Phase 2: Text Conversation Persistence', () => {
     const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
     const sql014 = readFileSync(path.join(migrationsDir, '014_create_text_conversation_tables.sql'), 'utf-8');
 
-    it('should be the next migration after 013 and keep the sequence additive', () => {
+    it('should keep the sequence additive (014 then 015)', () => {
       const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
-      expect(files).toHaveLength(14);
-      expect(files[files.length - 1]).toBe('014_create_text_conversation_tables.sql');
-      expect(files.slice(0, 13).map((f) => f.slice(0, 3))).toEqual(
-        Array.from({ length: 13 }, (_, i) => String(i + 1).padStart(3, '0'))
+      expect(files).toHaveLength(15);
+      expect(files[files.length - 2]).toBe('014_create_text_conversation_tables.sql');
+      expect(files[files.length - 1]).toBe('015_conversation_qualification.sql');
+      expect(files.map((f) => f.slice(0, 3))).toEqual(
+        Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(3, '0'))
       );
     });
 
@@ -246,6 +247,24 @@ describe('Phase 2: Text Conversation Persistence', () => {
       expect(sql014).not.toMatch(/ALTER TABLE calls/i);
       expect(sql014).not.toMatch(/ALTER TABLE conversation_state/i);
       expect(sql014).not.toMatch(/DROP COLUMN/i);
+    });
+  });
+
+  describe('migration 015 contents (Phase 6)', () => {
+    const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
+    const sql015 = readFileSync(path.join(migrationsDir, '015_conversation_qualification.sql'), 'utf-8');
+
+    it('should enable conversation-anchored qualifications additively', () => {
+      expect(sql015).toMatch(/ALTER TABLE qualifications/);
+      expect(sql015).toMatch(/DROP NOT NULL/);
+      expect(sql015).toMatch(/qualifications_conversation_id_unique_idx/);
+    });
+
+    it('should not touch or drop legacy structures', () => {
+      expect(sql015).not.toMatch(/DROP TABLE/i);
+      expect(sql015).not.toMatch(/ALTER TABLE calls/i);
+      expect(sql015).not.toMatch(/ALTER TABLE conversation_state[^s]/i);
+      expect(sql015).not.toMatch(/DROP COLUMN/i);
     });
   });
 });

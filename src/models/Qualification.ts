@@ -23,8 +23,9 @@ export interface QualificationDetails {
 
 export interface Qualification {
   id: string;
-  call_id: string;
-  /** Nullable text-conversation anchor (Phase 2 bridge; call_id stays canonical). */
+  /** Null for text (web/WhatsApp) qualifications (Phase 6); populated for legacy voice. */
+  call_id: string | null;
+  /** Primary anchor for text conversations (Phase 6); null for legacy voice. */
   conversation_id?: string | null;
   lead_id?: string | null;
   score: number;
