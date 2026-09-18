@@ -63,6 +63,28 @@ const UNKNOWN_TOKENS = new Set([
   '-',
 ]);
 
+/**
+ * Render a state date value (ISO string, pg Date, or timestamp) as a short
+ * YYYY-MM-DD date for prompts and customer-facing summaries. Raw Date
+ * stringification ("...GMT+0530...") confuses the model and the customer,
+ * so it must never reach rendered text.
+ */
+export const formatStateDate = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return null;
+    const iso = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (iso) return iso[1];
+    return trimmed.slice(0, 10);
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  return null;
+};
+
 /** Values that must leave an existing field unchanged when merged. */
 export const isUnknownStateValue = (value: unknown): boolean => {
   if (value === undefined || value === null) return true;
@@ -174,7 +196,9 @@ export const validateTextStateUpdate = (raw: unknown): StateValidationResult => 
 /**
  * Deterministic merge: unknown/null update values leave existing fields
  * unchanged; known values overwrite. Unrelated existing fields are preserved.
- * Pure function — no I/O, no SQL.
+ * Exception: additional_requirements unions across turns (semicolon-separated
+ * tokens, case-insensitive dedupe) so a later "temperature control" note
+ * never erases an earlier "fragile" note. Pure function — no I/O, no SQL.
  */
 export const mergeTextConversationState = <T extends Partial<ConversationStateRecord>>(
   existing: T | null | undefined,
@@ -184,9 +208,34 @@ export const mergeTextConversationState = <T extends Partial<ConversationStateRe
   for (const field of TEXT_STATE_FIELDS) {
     const incoming = (update as Record<string, unknown>)[field];
     if (isUnknownStateValue(incoming)) continue;
+    if (field === 'additional_requirements') {
+      base[field] = unionRequirementTokens(base[field], incoming);
+      continue;
+    }
     base[field] = incoming;
   }
   return base as T & TextStateUpdate;
+};
+
+const splitRequirementTokens = (value: unknown): string[] => {
+  if (typeof value !== 'string') return [];
+  return value
+    .split(';')
+    .map((t) => t.trim().replace(/\s+/g, ' '))
+    .filter((t) => t.length > 0);
+};
+
+/** Union ';'-separated requirement tokens (case-insensitive dedupe, capped). */
+export const unionRequirementTokens = (existing: unknown, incoming: unknown): string => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const token of [...splitRequirementTokens(existing), ...splitRequirementTokens(incoming)]) {
+    const key = token.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(token);
+  }
+  return out.join('; ').slice(0, 500);
 };
 
 // ---------------------------------------------------------------------------
@@ -215,14 +264,84 @@ const URGENCY_KEYWORDS: Record<string, string[]> = {
   urgent: ['urgent', 'asap', 'immediately', 'emergency', 'same day'],
   high: ['high priority', 'priority', 'fast'],
   normal: ['normal', 'standard'],
-  low: ['not urgent', 'flexible', 'whenever'],
+  low: ['flexible', 'whenever'],
 };
+
+/**
+ * Explicit non-urgency negations. Checked BEFORE the positive keyword scan
+ * so "not an emergency" / "it isn't urgent" never match the "emergency" /
+ * "urgent" keywords above. A negation always resolves to the canonical
+ * non-urgent representation ("normal" — an existing urgency level).
+ */
+const URGENCY_NEGATIONS = [
+  /\bnot\s+(?:an?\s+)?emergency\b/i,
+  /\bnot\s+urgent\b/i,
+  /\bisn'?t\s+urgent\b/i,
+  /\bthis\s+is\s+not\s+urgent\b/i,
+  /\bno\s+urgency\b/i,
+  /\bno\s+(?:rush|hurry)\b/i,
+  /\bnot\s+time[\s-]*sensitive\b/i,
+];
+
+const hasUrgencyNegation = (text: string): boolean =>
+  URGENCY_NEGATIONS.some((re) => re.test(text));
+
+/** Handling signals that become additional_requirements tokens (never cargo). */
+const REQUIREMENT_SIGNALS: Array<{ test: RegExp; label: string }> = [
+  { test: /\bfragil(?:e|ity)\b/i, label: 'fragile' },
+  { test: /temperature[\s-]*control(?:led)?\b/i, label: 'temperature control important' },
+  { test: /\bcold\s*chain\b/i, label: 'cold chain required' },
+];
+
+const WEEKDAYS = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+] as const;
+
+/**
+ * Resolve "next <weekday>" (also "this/on <weekday>") to an ISO YYYY-MM-DD
+ * date: the first such weekday strictly after the reference day. Pure and
+ * deterministic; `now` is injectable for tests (defaults to today).
+ * required_date and urgency stay independent — a date never implies urgency.
+ */
+export const resolveWeekdayDate = (
+  message: string,
+  now: Date = new Date()
+): string | null => {
+  if (!message || typeof message !== 'string') return null;
+  const match = message.match(
+    /\b(?:next|this|on)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i
+  );
+  if (!match) return null;
+  const target = WEEKDAYS.indexOf(match[1].toLowerCase() as (typeof WEEKDAYS)[number]);
+  let diff = (target - now.getDay() + 7) % 7;
+  if (diff === 0) diff = 7; // "next Tuesday" on a Tuesday = 7 days out
+  const out = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${out.getFullYear()}-${pad(out.getMonth() + 1)}-${pad(out.getDate())}`;
+};
+
+/**
+ * Terminator lookahead for cargo noun phrases: the description ends before
+ * route/time/motive clauses or punctuation. Lets long descriptions (up to
+ * the DB-supported ~100 chars) survive without swallowing the rest of the
+ * sentence.
+ */
+const CARGO_TERMINATOR =
+  '(?=\\s+(?:from|to|for|with|but|because|next|required|budget|pickup|destination|my\\b|i\\b|me\\b|we\\b)|[,.;!?]|$)';
+const CARGO_PHRASE = `([A-Za-z][A-Za-z\\s.'-]{1,90}?)\\s*${CARGO_TERMINATOR}`;
 
 /**
  * Best-effort deterministic slot extraction from a single user message.
  * Returns a validated partial update (possibly empty). Never throws.
+ * `now` anchors relative weekday dates ("next Tuesday"); defaults to today.
  */
-export const extractStateFromMessage = (message: string): TextStateUpdate => {
+export const extractStateFromMessage = (message: string, options: { now?: Date } = {}): TextStateUpdate => {
   const raw: Record<string, unknown> = {};
   if (!message || typeof message !== 'string') return {};
   const text = message.trim();
@@ -286,24 +405,81 @@ export const extractStateFromMessage = (message: string): TextStateUpdate => {
     if (val.length > 1 && !/^(looking|trying|here)\b/i.test(val)) raw['customer_name'] = val;
   }
 
-  // Required date: ISO YYYY-MM-DD
+  // Required date: ISO YYYY-MM-DD, else relative weekday ("next Tuesday").
+  // A date never implies urgency — the two fields stay independent.
   const dateMatch = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
-  if (dateMatch) raw['required_date'] = dateMatch[1];
-
-  // Cargo type: "cargo is X" / "shipping X" / "transporting X"
-  const cargoMatch = text.match(
-    /(?:cargo\s+(?:is|type\s*(?:is|:)?)\s*|shipping\s+|transporting\s+)([A-Za-z][A-Za-z\s.'-]{1,40})/i
-  );
-  if (cargoMatch) {
-    const val = cargoMatch[1].trim().replace(/[.,;]+$/, '');
-    if (val.length > 1 && val.length < 60) raw['cargo_type'] = val;
+  if (dateMatch) {
+    raw['required_date'] = dateMatch[1];
+  } else {
+    const weekdayDate = resolveWeekdayDate(text, options.now);
+    if (weekdayDate) raw['required_date'] = weekdayDate;
   }
 
-  // Urgency scan
-  for (const [level, keywords] of Object.entries(URGENCY_KEYWORDS)) {
-    if (keywords.some((k) => lower.includes(k))) {
-      raw['urgency'] = level;
-      break;
+  // Cargo type: "cargo is X" / "shipping X" / "transporting X" /
+  // "move <weight> of X" / explicit "Actually (the cargo/it is) X" corrections.
+  // Full phrases survive (DB supports ~100 chars); clauses after route/time
+  // prepositions are excluded via the terminator lookahead.
+  // Bare handling adjectives belong to additional_requirements, never cargo.
+  const NON_CARGO_ADJECTIVES = new Set(['fragile', 'fragility', 'urgent', 'normal', 'important']);
+  const cleanCargo = (val: string): string | null => {
+    const clean = val.trim().replace(/[.,;]+$/, '');
+    if (clean.length <= 1 || clean.length > 95) return null;
+    if (NON_CARGO_ADJECTIVES.has(clean.toLowerCase())) return null;
+    return clean;
+  };
+  // Alternatives are tried in order; the first one yielding a usable
+  // (non-adjective) value wins. A truthy-but-unusable match (e.g. "cargo
+  // is fragile" later in the sentence) must not shadow a real description.
+  const cargoAlternatives = [
+    new RegExp(`(?:cargo\\s+(?:is|type\\s*(?:is|:)?)\\s*|shipping\\s+|transporting\\s+)${CARGO_PHRASE}`, 'i'),
+    new RegExp(`\\bmove\\s+[\\d.]+\\s*(?:kg|kgs?|kilos?|tonnes?|tons?)\\s+of\\s+${CARGO_PHRASE}`, 'i'),
+  ];
+  let cargoVal: string | null = null;
+  for (const re of cargoAlternatives) {
+    const m = text.match(re);
+    if (m) {
+      const cleaned = cleanCargo(m[1]);
+      if (cleaned) {
+        cargoVal = cleaned;
+        break;
+      }
+    }
+  }
+  if (cargoVal) {
+    raw['cargo_type'] = cargoVal;
+  } else {
+    // Correction form ("Actually it is X" / "Actually, the cargo is X").
+    // Requires a multi-word phrase so bare handling adjectives ("It is
+    // fragile") route to additional_requirements instead of cargo_type.
+    const correction = text.match(
+      new RegExp(`\\bactually\\s*,?\\s*(?:the\\s+cargo\\s+is|it\\s+is|it'?s)\\s+${CARGO_PHRASE}`, 'i')
+    );
+    if (correction) {
+      const val = cleanCargo(correction[1]);
+      if (val && val.trim().split(/\s+/).length > 1) raw['cargo_type'] = val;
+    }
+  }
+
+  // Handling requirements: every matching signal is preserved ("fragile;
+  // temperature control important"). Never collapses into cargo_type.
+  const requirementLabels = REQUIREMENT_SIGNALS.filter((s) => s.test.test(text)).map(
+    (s) => s.label
+  );
+  if (requirementLabels.length > 0) {
+    raw['additional_requirements'] = requirementLabels.join('; ');
+  }
+
+  // Urgency: explicit negations win over every positive keyword, so "not an
+  // emergency" resolves to the canonical non-urgent level ("normal") instead
+  // of matching the "emergency" keyword. Corrections therefore override.
+  if (hasUrgencyNegation(text)) {
+    raw['urgency'] = 'normal';
+  } else {
+    for (const [level, keywords] of Object.entries(URGENCY_KEYWORDS)) {
+      if (keywords.some((k) => lower.includes(k))) {
+        raw['urgency'] = level;
+        break;
+      }
     }
   }
 

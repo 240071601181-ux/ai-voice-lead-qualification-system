@@ -10,6 +10,7 @@
  * - No JSON, no tool syntax, no internal metadata ever reaches the text.
  */
 import { isJsonToolCallContent, looksLikeJsonToolCall } from './conversationTools';
+import { formatStateDate } from './textStateExtraction';
 
 /** Internal "still working" phrasing that must never reach the customer. */
 const PLACEHOLDER_PATTERNS = [
@@ -93,7 +94,7 @@ const describeKnown = (state: FallbackState): string[] => {
   show('cargo', nonEmpty(state.cargo_type));
   const weight = nonEmpty(state.cargo_weight);
   if (weight) parts.push(`cargo weight ${weight} kg`);
-  show('delivery date', nonEmpty(state.required_date));
+  show('delivery date', formatStateDate(state.required_date));
   const budget = nonEmpty(state.budget);
   if (budget) parts.push(`budget INR ${budget}`);
   show('contact name', nonEmpty(state.customer_name));

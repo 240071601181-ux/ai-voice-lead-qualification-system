@@ -2,6 +2,7 @@ import { agentConfig } from './config';
 import { getAgentPromptContext } from '../services/agentConfigService';
 import { getLlmProvider, LlmMessage, LlmResponse, LlmToolDefinition } from './llm';
 import { getStateByCallId, getStateByConversationId } from '../services/conversationStateService';
+import { formatStateDate } from './textStateExtraction';
 import {
   AgentContext,
   ConversationChannel,
@@ -150,7 +151,7 @@ export class AgentOrchestrator {
             `- Vehicle Type: ${state.vehicle_type || 'Not provided'}\n` +
             `- Cargo Type: ${state.cargo_type || 'Not provided'}\n` +
             `- Cargo Weight: ${state.cargo_weight !== null && state.cargo_weight !== undefined ? state.cargo_weight + ' kg' : 'Not provided'}\n` +
-            `- Required Date: ${state.required_date || 'Not provided'}\n` +
+            `- Required Date: ${formatStateDate((state as unknown as Record<string, unknown>).required_date) || 'Not provided'}\n` +
             `- Budget: ${state.budget !== null && state.budget !== undefined ? 'INR ' + state.budget : 'Not provided'}\n` +
             `- Urgency: ${state.urgency || 'Not provided'}\n` +
             `- Additional Requirements: ${state.additional_requirements || 'None'}`;

@@ -1,4 +1,5 @@
 import { LlmToolCall, LlmToolDefinition } from './llm';
+import { formatStateDate } from './textStateExtraction';
 import { ToolResult } from './tools';
 import {
   checkCalendarAvailability,
@@ -133,7 +134,7 @@ const stateSummary = (state: Record<string, unknown> | null): string => {
     `Vehicle Type: ${pick(state['vehicle_type'])}`,
     `Cargo Type: ${pick(state['cargo_type'])}`,
     `Cargo Weight: ${state['cargo_weight'] ?? 'Not provided'}`,
-    `Required Date: ${pick(state['required_date'])}`,
+    `Required Date: ${formatStateDate(state['required_date']) ?? 'Not provided'}`,
     `Budget: ${pick(state['budget'])}`,
     `Urgency: ${pick(state['urgency'])}`,
   ].join('\n');
