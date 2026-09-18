@@ -327,6 +327,20 @@ SUPPORTED LANGUAGES & RULES:
         const next = await provider.generateResponse(working, tools);
         // Carry the audit trail across continuations.
         next.executedTools = current.executedTools;
+        // Continuations may also emit JSON-text tool calls; convert them so
+        // multi-round tool use keeps working instead of leaking JSON.
+        if (!next.toolCalls || next.toolCalls.length === 0) {
+          const fallback = extractJsonToolCallsFromContent(next.content);
+          if (fallback) {
+            logger.info('Tool-loop continuation JSON tool-call recognized', {
+              conversationId: ctx.conversationId,
+              leadId: ctx.leadId ?? null,
+              round,
+              tool: fallback[0].function.name,
+            });
+            next.toolCalls = fallback;
+          }
+        }
         current = next;
       } catch (err: any) {
         logger.error('Text tool-loop LLM continuation failed; returning safe partial response', {
@@ -360,6 +374,22 @@ SUPPORTED LANGUAGES & RULES:
           content: 'I could not finish all the updates in time. Please try again.',
         };
       }
+    }
+
+    // Final leak guard: raw tool-call JSON must never reach the customer
+    // or the transcript. If the model never produced natural language,
+    // substitute a safe message (persistence + frontend only see this).
+    if (!current.content || current.content.trim().length === 0 || isJsonToolCallContent(current.content)) {
+      logger.warn('Text tool loop ended with tool-call JSON as content; substituting safe message', {
+        conversationId: ctx.conversationId,
+        leadId: ctx.leadId ?? null,
+        rounds,
+      });
+      current = {
+        ...current,
+        toolCalls: undefined,
+        content: 'Your details have been noted. How else can I help with your shipment?',
+      };
     }
 
     logger.info('Text tool loop finished', {
