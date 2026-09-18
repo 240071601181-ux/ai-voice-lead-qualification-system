@@ -481,20 +481,24 @@ export const executeScheduleMeetingText = async (
  * llama3.2 via Ollama: `{"name":"updateConversationState","parameters":{...}}`
  * with no `tool_calls` on the message).
  *
- * Recognition is deliberately narrow — ONLY the exact allowlisted internal
- * structure qualifies:
+ * Recognition is deliberately narrow — ONLY the exact internal tool-call
+ * SHAPE qualifies:
  * - the ENTIRE trimmed content (optionally wrapped in one ```json fence)
  *   parses as a single plain JSON object; embedded JSON stays plain text.
  * - top-level keys are limited to `name` + (`parameters` | `arguments`) and
  *   an optional string `id`. Any other key disqualifies it.
- * - `name` must be in the existing text-tool allowlist.
- * - the arguments value must be a plain object (passed RAW to
- *   dispatchConversationTool, which parses + validates + injects the trusted
- *   context; identity fields stay forbidden there).
+ * - `name` is a non-empty string; the arguments value is a plain object.
+ *
+ * Shape recognition is NOT execution permission: the returned call always
+ * flows through dispatchConversationTool, which enforces the text-tool
+ * allowlist (unknown tools are rejected there), validates arguments, and
+ * injects the trusted context. Routing unknown names to the dispatcher —
+ * instead of dropping them — lets the model receive the rejection and
+ * answer naturally instead of leaking raw JSON.
  *
  * Everything else — malformed JSON, arrays, arbitrary customer JSON, extra
- * keys, unknown tools — returns undefined and remains normal assistant text.
- * Never throws.
+ * keys — returns undefined. Malformed tool-shaped content is handled by
+ * looksLikeJsonToolCall (suppressed, never executed). Never throws.
  */
 export const extractJsonToolCallsFromContent = (content: unknown): LlmToolCall[] | undefined => {
   if (typeof content !== 'string') return undefined;
@@ -516,7 +520,9 @@ export const extractJsonToolCallsFromContent = (content: unknown): LlmToolCall[]
   if (!('name' in obj) || !hasArgs) return undefined;
   const allowed = new Set(['name', 'parameters', 'arguments', 'id']);
   if (!keys.every((k) => allowed.has(k))) return undefined;
-  if (!isTextToolName(obj['name'])) return undefined;
+  // Name allowlisting is enforced at execution (dispatchConversationTool),
+  // not here, so unknown names are properly rejected instead of leaked.
+  if (typeof obj['name'] !== 'string' || (obj['name'] as string).trim().length === 0) return undefined;
   if (obj['id'] !== undefined && typeof obj['id'] !== 'string') return undefined;
   const rawArgs = ('parameters' in obj ? obj['parameters'] : obj['arguments']) as unknown;
   if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return undefined;
@@ -539,6 +545,27 @@ export const extractJsonToolCallsFromContent = (content: unknown): LlmToolCall[]
 /** True when assistant content is actually a strict tool-call JSON payload. */
 export const isJsonToolCallContent = (content: unknown): boolean =>
   extractJsonToolCallsFromContent(content) !== undefined;
+
+/**
+ * Probable tool-call leak that FAILED strict parsing (e.g. truncated
+ * mid-object by a generation limit: `{"name":"updateConversationState",
+ * "parameters":{"updates":{...}}` with missing closing braces).
+ *
+ * True only when the content carries the distinctive tool-call key combo
+ * (`"name"` plus a `"parameters"`/`"arguments"` key) yet is not a valid
+ * strict payload. Such content must never execute (arguments are
+ * unknowable) and never render (it is internal machinery, not customer
+ * language). Ordinary malformed or customer JSON lacks this key combo and
+ * stays normal text.
+ */
+export const looksLikeJsonToolCall = (content: unknown): boolean => {
+  if (typeof content !== 'string') return false;
+  const text = content.trim();
+  if (text.length === 0 || text.length > 8000) return false;
+  if (extractJsonToolCallsFromContent(text) !== undefined) return false;
+  if (!text.includes('"name"')) return false;
+  return text.includes('"parameters"') || text.includes('"arguments"');
+};
 
 export interface DispatchedToolOutcome {
   name: string;

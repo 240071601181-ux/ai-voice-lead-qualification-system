@@ -5,7 +5,12 @@ import {
   ConversationMessage,
 } from '../models/Conversation';
 import { LlmMessage } from '../agent/llm';
-import { orchestrator } from '../agent/orchestrator';
+import { TOOL_LOOP_CONTINUATION_ERROR, orchestrator } from '../agent/orchestrator';
+import {
+  buildInformativeFallback,
+  isPlaceholderLike,
+  isUnusableFinalContent,
+} from '../agent/fallbackResponse';
 import { getChatMaxContextMessages, getChatMaxMessageLength } from '../config';
 import { extractAndPersistTextState } from '../services/conversationStateService';
 import {
@@ -286,14 +291,41 @@ export const postConversationMessageHandler = async (
     // before. Tool activity is recorded as audit-safe metadata (tool names
     // + success flags only; no arguments, identities, or raw backend
     // errors reach the transcript or the customer).
-    const assistantContent =
-      response.content && response.content.trim().length > 0
-        ? response.content
-        : TOOL_CALL_ONLY_FALLBACK;
     const toolsExecuted = (response.executedTools ?? []).map((t) => ({
       name: t.name,
       success: t.success,
     }));
+    // Final-response validation: raw tool-call JSON and internal
+    // "working on it" phrasing never reach the customer. When the model
+    // produced nothing usable — or the continuation failed after a tool
+    // genuinely succeeded — compose a deterministic reply grounded ONLY in
+    // persisted state (never invented facts).
+    let assistantContent = response.content ?? '';
+    let usedFallback = false;
+    const continuationFailedAfterSuccess =
+      assistantContent === TOOL_LOOP_CONTINUATION_ERROR &&
+      toolsExecuted.some((t) => t.success);
+    if (isUnusableFinalContent(assistantContent) || continuationFailedAfterSuccess) {
+      if (isPlaceholderLike(assistantContent)) {
+        logger.warn('Model emitted placeholder phrasing; replacing with state-grounded fallback', {
+          conversationId: conversation.id,
+        });
+      }
+      try {
+        const state = await findConversationStateByConversationId(conversation.id);
+        assistantContent = buildInformativeFallback(state as unknown as Record<string, unknown> | null, {
+          updatedThisTurn: stateChanged || toolsExecuted.some((t) => t.success),
+        });
+        usedFallback = true;
+      } catch (err: any) {
+        logger.error('Fallback state lookup failed; using safe placeholder', {
+          conversationId: conversation.id,
+          error: err?.message,
+        });
+        assistantContent = TOOL_CALL_ONLY_FALLBACK;
+        usedFallback = true;
+      }
+    }
     const assistantMessage = await conversationMessageService.appendMessage({
       conversationId: conversation.id,
       role: 'assistant',
@@ -310,6 +342,8 @@ export const postConversationMessageHandler = async (
       historyMessages: history.length,
       contextLimit,
       toolsExecuted,
+      usedFallback,
+      finalContentLength: assistantContent.length,
       llmSuccess: true,
     });
 

@@ -14,6 +14,7 @@ import {
   extractJsonToolCallsFromContent,
   getTextToolDefinitions,
   isJsonToolCallContent,
+  looksLikeJsonToolCall,
   TrustedConversationContext,
 } from './conversationTools';
 import { logger } from '../utils/logger';
@@ -37,8 +38,16 @@ export const TEXT_TURN_GUIDANCE = [
   '- Maintain conversational continuity with the recent history (names, places, prior answers).',
   '- Reply in the customer\'s language (English, Hindi, Tamil) and code-switch naturally.',
   '- Never claim a booking, payment, or update succeeded unless a tool result confirms it.',
+  '- To save details, use the provided tools via native tool calls. Never write JSON tool calls as text; always reply to the customer in natural language.',
   '- Meetings: only offer to schedule after the user gives a concrete date/time (ask first); check availability before booking; never infer meeting time from required_date.',
 ].join('\n');
+
+/**
+ * Continuation-loop failure message (user-safe, persisted only when the
+ * controller cannot compose the state-grounded informative fallback).
+ */
+export const TOOL_LOOP_CONTINUATION_ERROR =
+  'I ran into a problem finishing that update. Please try again.';
 
 /** Short conversational messages that never need knowledge retrieval. */
 const TRIVIAL_MESSAGES = new Set([
@@ -248,6 +257,14 @@ SUPPORTED LANGUAGES & RULES:
             tool: fallback[0].function.name,
           });
           first.toolCalls = fallback;
+        } else if (looksLikeJsonToolCall(first.content)) {
+          // Malformed/truncated tool-shaped content: arguments are unknowable
+          // so nothing may execute, and raw machinery must never render.
+          // Empty content lets the controller persist its safe placeholder.
+          logger.warn('Text turn emitted malformed tool-call JSON; suppressing (never executed, never rendered)', {
+            conversationId: identity.conversationId ?? null,
+          });
+          first.content = '';
         }
       }
       logger.info('AgentOrchestrator turn completed', {
@@ -341,6 +358,13 @@ SUPPORTED LANGUAGES & RULES:
             next.toolCalls = fallback;
           }
         }
+        logger.info('Text tool-loop continuation LLM call finished', {
+          conversationId: ctx.conversationId,
+          leadId: ctx.leadId ?? null,
+          round: rounds,
+          hasContent: (next.content || '').trim().length > 0,
+          hasToolCalls: (next.toolCalls ?? []).length,
+        });
         current = next;
       } catch (err: any) {
         logger.error('Text tool-loop LLM continuation failed; returning safe partial response', {
@@ -350,7 +374,7 @@ SUPPORTED LANGUAGES & RULES:
           error: err?.message,
         });
         current = {
-          content: current.content || 'I ran into a problem finishing that update. Please try again.',
+          content: current.content || TOOL_LOOP_CONTINUATION_ERROR,
           finishReason: 'stop',
           executedTools: current.executedTools,
         };
@@ -377,19 +401,22 @@ SUPPORTED LANGUAGES & RULES:
     }
 
     // Final leak guard: raw tool-call JSON must never reach the customer
-    // or the transcript. If the model never produced natural language,
-    // substitute a safe message (persistence + frontend only see this).
-    if (!current.content || current.content.trim().length === 0 || isJsonToolCallContent(current.content)) {
-      logger.warn('Text tool loop ended with tool-call JSON as content; substituting safe message', {
+    // or the transcript. If the model never produced natural language —
+    // including malformed/truncated tool-shaped content — blank the content
+    // so the controller composes the state-grounded informative fallback
+    // (single source of customer-facing fallback text).
+    if (
+      !current.content ||
+      current.content.trim().length === 0 ||
+      isJsonToolCallContent(current.content) ||
+      looksLikeJsonToolCall(current.content)
+    ) {
+      logger.warn('Text tool loop ended without usable content; controller will compose fallback', {
         conversationId: ctx.conversationId,
         leadId: ctx.leadId ?? null,
         rounds,
       });
-      current = {
-        ...current,
-        toolCalls: undefined,
-        content: 'Your details have been noted. How else can I help with your shipment?',
-      };
+      current = { ...current, toolCalls: undefined, content: '' };
     }
 
     logger.info('Text tool loop finished', {

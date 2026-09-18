@@ -251,10 +251,31 @@ export class OllamaLlmProvider implements LlmProvider {
         return { role: 'tool' as const, content: m.content ?? '' };
       }
       if (m.role === 'assistant' && m.tool_calls) {
+        // Ollama-native shape: function.arguments must be an OBJECT.
+        // The internal LlmToolCall representation carries arguments as a
+        // JSON string (OpenAI style); echoing that back verbatim makes
+        // /api/chat reject the continuation with 400, so parse it here.
+        const toolCalls = (m.tool_calls as any[]).map((tc: any) => {
+          const rawArgs = tc?.function?.arguments;
+          let args: unknown = {};
+          if (typeof rawArgs === 'string') {
+            try {
+              args = rawArgs.trim().length > 0 ? JSON.parse(rawArgs) : {};
+            } catch {
+              args = {};
+            }
+          } else if (rawArgs && typeof rawArgs === 'object') {
+            args = rawArgs;
+          }
+          return {
+            ...tc,
+            function: { ...(tc?.function ?? {}), name: tc?.function?.name, arguments: args },
+          };
+        });
         return {
           role: 'assistant' as const,
           content: m.content ?? '',
-          tool_calls: m.tool_calls as OllamaChatMessage['tool_calls'],
+          tool_calls: toolCalls as OllamaChatMessage['tool_calls'],
         };
       }
       return { role: m.role as 'system' | 'user' | 'assistant', content: m.content ?? '' };

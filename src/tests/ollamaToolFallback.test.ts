@@ -18,9 +18,11 @@ import {
   dispatchConversationTool,
   extractJsonToolCallsFromContent,
   getTextToolDefinitions,
+  looksLikeJsonToolCall,
 } from '../agent/conversationTools';
 import { pool } from '../database';
 
+jest.mock('axios');
 jest.mock('../database', () => {
   const mPool = { query: jest.fn() };
   return { pool: mPool, default: mPool };
@@ -116,7 +118,20 @@ describe('strict JSON-text tool-call parser', () => {
     expect(fenced).toHaveLength(1);
   });
 
-  it('rejects everything that is not the exact allowlisted structure', () => {
+  it('recognizes the tool-call shape even for unknown names (dispatcher rejects them)', () => {
+    // Shape recognition is not execution permission: unknown names flow to
+    // dispatchConversationTool, which rejects them, so the model retries
+    // naturally instead of leaking raw JSON.
+    for (const name of ['runCommand', 'queryDatabase', 'endCall', 'getVehicleTypes']) {
+      const calls = extractJsonToolCallsFromContent(
+        `{"name":"${name}","parameters":{}}`
+      );
+      expect(calls).toHaveLength(1);
+      expect(calls![0].function.name).toBe(name);
+    }
+  });
+
+  it('rejects everything that is not the exact tool-call shape', () => {
     const notCalls = [
       'not json at all',
       '{"name":',
@@ -129,10 +144,6 @@ describe('strict JSON-text tool-call parser', () => {
       null,
       undefined,
       42,
-      // Unknown tool: never auto-recognized.
-      '{"name":"runCommand","parameters":{"cmd":"ls"}}',
-      '{"name":"queryDatabase","parameters":{"sql":"SELECT 1"}}',
-      '{"name":"endCall","parameters":{}}',
       // Extra top-level keys disqualify.
       '{"name":"updateConversationState","parameters":{"updates":{}},"extra":1}',
       '{"name":"updateConversationState","parameters":{"updates":{}},"content":"hi"}',
@@ -155,6 +166,32 @@ describe('strict JSON-text tool-call parser', () => {
     for (const candidate of notCalls) {
       expect(extractJsonToolCallsFromContent(candidate)).toBeUndefined();
     }
+  });
+});
+
+describe('malformed tool-shaped content (truncated generation)', () => {
+  const TRUNCATED =
+    '{"name":"updateConversationState","parameters":{"updates":{"customer_name":"","pickup_location":"","destination":""';
+
+  it('flags truncated tool JSON without ever treating it as callable', () => {
+    expect(looksLikeJsonToolCall(TRUNCATED)).toBe(true);
+    expect(extractJsonToolCallsFromContent(TRUNCATED)).toBeUndefined();
+  });
+
+  it('does not flag well-formed payloads, customer JSON, or prose', () => {
+    expect(
+      looksLikeJsonToolCall('{"name":"updateConversationState","parameters":{"updates":{}}}')
+    ).toBe(false);
+    expect(looksLikeJsonToolCall('{"name":"getVehicleTypes","parameters":{}}')).toBe(false);
+    expect(looksLikeJsonToolCall('{"delivery":"tomorrow","phone":"123"}')).toBe(false);
+    expect(looksLikeJsonToolCall('{"name":"Ravi","city":"Chennai"}')).toBe(false);
+    expect(looksLikeJsonToolCall('Hello! How can I help?')).toBe(false);
+    expect(looksLikeJsonToolCall('')).toBe(false);
+  });
+
+  it('flags truncated tool-shaped content for any tool name', () => {
+    expect(looksLikeJsonToolCall('{"name":"getVehicleTypes","parameters":{')).toBe(true);
+    expect(looksLikeJsonToolCall('{"name":"runCommand","parameters":')).toBe(true);
   });
 });
 
@@ -304,23 +341,150 @@ describe('orchestrator JSON-text tool loop (text turns)', () => {
     expect(res.content).not.toContain('"parameters"');
   });
 
-  it('leaves unknown-tool JSON as plain text (never auto-executed)', async () => {
-    installMock(makeStore());
+  it('suppresses truncated tool-shaped content (never executed, never rendered)', async () => {
+    const store = makeStore();
+    installMock(store);
     withProvider(
       scriptedProvider(
-        [{ content: '{"name":"runCommand","parameters":{"cmd":"ls"}}', finishReason: 'stop' }],
+        [
+          {
+            content:
+              '{"name":"updateConversationState","parameters":{"updates":{"customer_name":"","pickup_location":""',
+            finishReason: 'stop',
+          },
+        ],
         []
       )
     );
 
     const res = await orchestrator.processTurn({
       conversationId: 'conv-1',
-      messages: [{ role: 'user', content: 'run something' }],
+      messages: [{ role: 'user', content: 'Hi' }],
       tools: getTextToolDefinitions(),
     });
 
+    // Nothing executed (arguments unknowable) and nothing raw survives:
+    // empty content lets the controller persist its safe placeholder.
     expect(res.executedTools ?? []).toEqual([]);
     expect(res.toolCalls).toBeUndefined();
+    expect(res.content).toBe('');
+    expect(store.textState).toBeNull();
+  });
+
+  it('blanks content when a continuation degrades into truncated JSON (controller composes fallback)', async () => {
+    const store = makeStore();
+    installMock(store);
+    withProvider(
+      scriptedProvider(
+        [
+          {
+            content: '{"name":"updateConversationState","parameters":{"updates":{"pickup_location":"Chennai"}}}',
+            finishReason: 'stop',
+          },
+          {
+            content: '{"name":"updateConversationState","parameters":{"updates":{"destination":"Bengal',
+            finishReason: 'stop',
+          },
+        ],
+        []
+      )
+    );
+
+    const res = await orchestrator.processTurn({
+      conversationId: 'conv-1',
+      messages: [{ role: 'user', content: 'Chennai then Bengal' }],
+      tools: getTextToolDefinitions(),
+    });
+
+    expect(res.executedTools).toEqual([{ name: 'updateConversationState', success: true }]);
+    expect(store.textState.pickup_location).toBe('Chennai');
+    // Blanked so the controller composes the state-grounded fallback.
+    expect(res.content).toBe('');
+    expect(res.toolCalls).toBeUndefined();
+  });
+
+  it('routes unknown-tool JSON to the dispatcher for rejection, then answers naturally', async () => {
+    installMock(makeStore());
+    withProvider(
+      scriptedProvider(
+        [
+          { content: '{"name":"getVehicleTypes","parameters":{}}', finishReason: 'stop' },
+          { content: 'We run trucks, containers, and tempos across South India.', finishReason: 'stop' },
+        ],
+        []
+      )
+    );
+
+    const res = await orchestrator.processTurn({
+      conversationId: 'conv-1',
+      messages: [{ role: 'user', content: 'What vehicles do you provide?' }],
+      tools: getTextToolDefinitions(),
+    });
+
+    // Rejected by the dispatcher (never executed), model retries naturally.
+    expect(res.executedTools).toEqual([{ name: 'getVehicleTypes', success: false }]);
+    expect(res.content).not.toContain('"parameters"');
+    expect(res.content).toContain('trucks');
+    expect(res.toolCalls).toBeUndefined();
+  });
+});
+
+describe('Ollama continuation wire format (arguments as objects)', () => {
+  const axios = require('axios') as { post: jest.Mock };
+
+  beforeEach(() => {
+    process.env.LLM_PROVIDER = 'ollama';
+    process.env.LLM_MODEL = 'wire-test-model';
+    process.env.LLM_BASE_URL = 'http://ollama-wire:11434';
+    (axios.post as jest.Mock).mockReset();
+  });
+
+  it('forwards assistant tool_calls with object arguments (no 400)', async () => {
+    (axios.post as jest.Mock).mockResolvedValueOnce({
+      data: { message: { role: 'assistant', content: 'Noted.' }, done: true },
+    });
+    const { OllamaLlmProvider } = require('../agent/llm') as typeof import('../agent/llm');
+    await new OllamaLlmProvider().generateResponse([
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'Pickup is Chennai' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          id: 'json_fallback_0',
+          type: 'function',
+          function: {
+            name: 'updateConversationState',
+            arguments: '{"updates":{"pickup_location":"Chennai"}}',
+          },
+        }],
+      },
+      { role: 'tool', content: 'Conversation state updated successfully' },
+    ]);
+    const payload = (axios.post as jest.Mock).mock.calls[0][1];
+    const forwarded = payload.messages.find((m: any) => m.role === 'assistant' && m.tool_calls);
+    expect(forwarded.tool_calls[0].function.arguments).toEqual({
+      updates: { pickup_location: 'Chennai' },
+    });
+    expect(forwarded.tool_calls[0].function.name).toBe('updateConversationState');
+    expect(forwarded.tool_calls[0].id).toBe('json_fallback_0');
+  });
+
+  it('falls back to {} for unparseable argument strings instead of crashing', async () => {
+    (axios.post as jest.Mock).mockResolvedValueOnce({
+      data: { message: { role: 'assistant', content: 'ok' }, done: true },
+    });
+    const { OllamaLlmProvider } = require('../agent/llm') as typeof import('../agent/llm');
+    await new OllamaLlmProvider().generateResponse([
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ function: { name: 'getConversationState', arguments: 'not-json{{{' } }],
+      },
+    ]);
+    const payload = (axios.post as jest.Mock).mock.calls[0][1];
+    const forwarded = payload.messages.find((m: any) => m.role === 'assistant' && m.tool_calls);
+    expect(forwarded.tool_calls[0].function.arguments).toEqual({});
   });
 });
 
