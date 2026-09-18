@@ -1,7 +1,6 @@
 // Configuration loader
-import dotenv from 'dotenv';
-
-dotenv.config({ path: '.env' });
+// Central env bootstrap FIRST: loads .env before any config is consumed.
+import './env';
 
 const numberOr = (raw: string | undefined, fallback: number): number => {
   const parsed = Number(raw);
@@ -274,7 +273,8 @@ const intOr = (raw: string | undefined, fallback: number): number => {
 };
 
 export const getAuthConfig = (): AuthConfig => ({
-  jwtSecret: process.env.AUTH_JWT_SECRET || '',
+  // Trimmed: a blank/whitespace-only value counts as missing (fail closed).
+  jwtSecret: (process.env.AUTH_JWT_SECRET || '').trim(),
   accessTtlSec: intOr(process.env.AUTH_ACCESS_TTL_SEC, 900),
   refreshTtlSec: intOr(process.env.AUTH_REFRESH_TTL_SEC, 7 * 24 * 3600),
   refreshCookieName: process.env.AUTH_REFRESH_COOKIE || 'mad_rt',
@@ -321,6 +321,69 @@ export const getChatConfig = (): ChatConfig => ({
   maxMessageLength: getChatMaxMessageLength(),
   maxToolRounds: getChatMaxToolRounds(),
 });
+
+export type SupportedLlmProvider = 'ollama' | 'openai' | 'mock';
+
+/** Official Ollama loopback default (local dev). Remote/ngrok via LLM_BASE_URL. */
+export const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+
+export interface LlmConfig {
+  /** Normalised provider name. Empty env defaults to 'ollama' (real provider). */
+  provider: SupportedLlmProvider;
+  /** True only when LLM_PROVIDER was explicitly set to 'mock' (tests). */
+  mockExplicit: boolean;
+  /** Model name for the real provider (e.g. an Ollama model tag). */
+  model: string;
+  /** Base URL for the real provider (Ollama server URL; unused by mock). */
+  baseUrl: string;
+  /** Request timeout in ms (LLM_TIMEOUT_MS). */
+  timeoutMs: number;
+  /** Sampling temperature (LLM_TEMPERATURE, default 0.2 for stable parsing). */
+  temperature: number;
+}
+
+const cleanEnv = (raw: string | undefined): string =>
+  typeof raw === 'string' ? raw.trim() : '';
+
+export const getLlmProviderName = (): string =>
+  cleanEnv(process.env.LLM_PROVIDER).toLowerCase();
+
+/**
+ * Central LLM configuration (env-driven, no secrets returned by value).
+ *
+ * - `LLM_PROVIDER=ollama` (or unset → ollama): real Ollama HTTP provider.
+ * - `LLM_PROVIDER=openai`: OpenAI Chat Completions provider.
+ * - `LLM_PROVIDER=mock`: deterministic offline provider, tests only.
+ * - Anything else throws a clear configuration error (never silent mock).
+ */
+export const getLlmConfig = (): LlmConfig => {
+  const name = getLlmProviderName();
+  if (name !== '' && name !== 'ollama' && name !== 'openai' && name !== 'mock') {
+    throw new Error(
+      `Unsupported LLM_PROVIDER "${cleanEnv(process.env.LLM_PROVIDER)}". ` +
+        'Supported providers: ollama, openai, mock (tests only).'
+    );
+  }
+  const provider: SupportedLlmProvider =
+    name === 'openai' ? 'openai' : name === 'mock' ? 'mock' : 'ollama';
+  const timeoutRaw = Number(process.env.LLM_TIMEOUT_MS);
+  const tempRaw = Number(process.env.LLM_TEMPERATURE);
+  return {
+    provider,
+    mockExplicit: name === 'mock',
+    model: cleanEnv(process.env.LLM_MODEL),
+    baseUrl:
+      cleanEnv(process.env.LLM_BASE_URL) ||
+      (provider === 'openai' ? 'https://api.openai.com/v1' : DEFAULT_OLLAMA_BASE_URL),
+    timeoutMs:
+      Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.floor(timeoutRaw) : 90000,
+    temperature:
+      Number.isFinite(tempRaw) && tempRaw >= 0 && tempRaw <= 2 ? tempRaw : 0.2,
+  };
+};
+
+/** True only when the mock provider was explicitly selected (tests). */
+export const isMockLlmExplicit = (): boolean => getLlmProviderName() === 'mock';
 
 export const DEFAULT_CHAT_MAX_TOOL_ROUNDS = 3;
 

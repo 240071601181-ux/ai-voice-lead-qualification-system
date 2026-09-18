@@ -1,6 +1,9 @@
+// Central env bootstrap MUST stay the first import: it loads .env before
+// any other module (routes, controllers, config) consumes process.env.
+import './config/env';
 import express, { Request, Response, NextFunction } from 'express';
-import dotenv from 'dotenv';
 import { logger } from './utils/logger';
+import { getEnvDiagnostics } from './config/env';
 import leadRoutes from './routes/leadRoutes';
 import vapiWebhookRoutes from './routes/vapiWebhookRoutes';
 import knowledgeRoutes from './routes/knowledgeRoutes';
@@ -17,9 +20,6 @@ import crmRoutes from './routes/crmRoutes';
 import whatsappRoutes from './routes/whatsappRoutes';
 import n8nRoutes from './routes/n8nRoutes';
 import settingsRoutes from './routes/settingsRoutes';
-
-// Load environment variables
-dotenv.config({ path: '.env' });
 
 const app = express();
 app.use(express.json());
@@ -105,9 +105,22 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
     logger.info(`Server listening on port ${PORT}`);
+    // Safe runtime environment diagnostics: names/status only, never values.
+    const diag = getEnvDiagnostics();
+    logger.info('Environment diagnostics', { ...diag });
+    logger.info(`AUTH_JWT_SECRET = ${diag.authJwtSecret}`);
+    if (diag.dotenvError) {
+      logger.warn(`dotenv: ${diag.dotenvError}`);
+    }
+    if (diag.inheritedAuthJwtPresent) {
+      logger.info(
+        `Inherited process.env.AUTH_JWT_SECRET existed before dotenv (wasBlank=${diag.inheritedAuthJwtWasBlank}); ` +
+          '.env does not override real environment variables'
+      );
+    }
     // Visibility for the most common local misconfiguration: auth endpoints
     // fail closed (500) without this server-only secret. Name only, never value.
-    if (!process.env.AUTH_JWT_SECRET) {
+    if (diag.authJwtSecret === 'MISSING') {
       logger.warn('AUTH_JWT_SECRET is not set: POST /api/v1/auth/* will fail closed until it is configured');
     }
   });

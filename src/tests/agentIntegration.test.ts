@@ -13,6 +13,18 @@ jest.mock('../database', () => {
 });
 
 describe('Phase 7: AI Agent + RAG Integration', () => {
+  const savedLlmProvider = process.env.LLM_PROVIDER;
+
+  beforeAll(() => {
+    // Offline deterministic provider for integration tests (mock is tests-only by policy).
+    process.env.LLM_PROVIDER = 'mock';
+  });
+
+  afterAll(() => {
+    if (savedLlmProvider === undefined) delete process.env.LLM_PROVIDER;
+    else process.env.LLM_PROVIDER = savedLlmProvider;
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
   });

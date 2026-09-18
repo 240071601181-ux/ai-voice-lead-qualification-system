@@ -231,7 +231,7 @@ export const extractStateFromMessage = (message: string): TextStateUpdate => {
 
   // Explicit pickup correction: "pickup should be X" / "pickup is X" / "from X"
   const pickupCorrection =
-    text.match(/pickup\s+(?:should\s+be|is|:)\s*([A-Za-z][A-Za-z\s.'-]{1,60})/i) ||
+    text.match(/pickup\s+(?:should\s+be|is|:)\s*([A-Za-z][A-Za-z\s.'-]{1,60}?)(?:\s+and\b|[,.]|$)/i) ||
     text.match(/(?:^|\b)from\s+([A-Za-z][A-Za-z\s.'-]{1,60}?)(?:\s+to\b|[,.]|$)/i);
   if (pickupCorrection) {
     const val = pickupCorrection[1].trim().replace(/[.,;]+$/, '');

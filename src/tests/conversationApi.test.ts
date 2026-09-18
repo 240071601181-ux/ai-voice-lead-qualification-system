@@ -104,10 +104,13 @@ describe('Phase 3: Text Conversation API', () => {
       'CHAT_MESSAGE_RATE_LIMIT_MAX',
       'CHAT_MAX_MESSAGE_LENGTH',
       'CHAT_ALLOW_LEGACY_VOICE',
+      'LLM_PROVIDER',
     ]) {
       savedEnv[key] = process.env[key];
     }
     process.env.CHAT_JWT_SECRET = TEST_SECRET;
+    // Offline deterministic provider for API tests (mock is tests-only by policy).
+    process.env.LLM_PROVIDER = 'mock';
     process.env.CHAT_RATE_LIMIT_MAX = '1000';
     process.env.CHAT_MESSAGE_RATE_LIMIT_MAX = '1000';
     process.env.CHAT_MAX_MESSAGE_LENGTH = '4000';

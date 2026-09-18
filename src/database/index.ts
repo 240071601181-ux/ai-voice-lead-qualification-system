@@ -1,7 +1,6 @@
 import { Pool } from 'pg';
-import dotenv from 'dotenv';
-
-dotenv.config();
+// Central env bootstrap: .env is loaded before DATABASE_URL is read.
+import '../config/env';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {

@@ -1,4 +1,4 @@
-import { LlmToolDefinition } from './llm';
+import { LlmToolCall, LlmToolDefinition } from './llm';
 import { ToolResult } from './tools';
 import {
   checkCalendarAvailability,
@@ -474,6 +474,71 @@ export const executeScheduleMeetingText = async (
     return { success: false, errors: [sanitizeToolError(err)] };
   }
 };
+
+/**
+ * Strict JSON-text fallback for models that emit a tool call as assistant
+ * content instead of the structured `tool_calls` field (observed with local
+ * llama3.2 via Ollama: `{"name":"updateConversationState","parameters":{...}}`
+ * with no `tool_calls` on the message).
+ *
+ * Recognition is deliberately narrow — ONLY the exact allowlisted internal
+ * structure qualifies:
+ * - the ENTIRE trimmed content (optionally wrapped in one ```json fence)
+ *   parses as a single plain JSON object; embedded JSON stays plain text.
+ * - top-level keys are limited to `name` + (`parameters` | `arguments`) and
+ *   an optional string `id`. Any other key disqualifies it.
+ * - `name` must be in the existing text-tool allowlist.
+ * - the arguments value must be a plain object (passed RAW to
+ *   dispatchConversationTool, which parses + validates + injects the trusted
+ *   context; identity fields stay forbidden there).
+ *
+ * Everything else — malformed JSON, arrays, arbitrary customer JSON, extra
+ * keys, unknown tools — returns undefined and remains normal assistant text.
+ * Never throws.
+ */
+export const extractJsonToolCallsFromContent = (content: unknown): LlmToolCall[] | undefined => {
+  if (typeof content !== 'string') return undefined;
+  let text = content.trim();
+  if (text.length === 0 || text.length > 8000) return undefined;
+  // Tolerate a single surrounding markdown code fence; nothing else.
+  const fence = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
+  if (fence) text = fence[1].trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+  const obj = parsed as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  const hasArgs = 'parameters' in obj || 'arguments' in obj;
+  if (!('name' in obj) || !hasArgs) return undefined;
+  const allowed = new Set(['name', 'parameters', 'arguments', 'id']);
+  if (!keys.every((k) => allowed.has(k))) return undefined;
+  if (!isTextToolName(obj['name'])) return undefined;
+  if (obj['id'] !== undefined && typeof obj['id'] !== 'string') return undefined;
+  const rawArgs = ('parameters' in obj ? obj['parameters'] : obj['arguments']) as unknown;
+  if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return undefined;
+  const id =
+    typeof obj['id'] === 'string' && obj['id'].trim().length > 0
+      ? obj['id'].trim().slice(0, 64)
+      : 'json_fallback_0';
+  return [
+    {
+      id,
+      type: 'function',
+      function: {
+        name: obj['name'] as string,
+        arguments: JSON.stringify(rawArgs),
+      },
+    },
+  ];
+};
+
+/** True when assistant content is actually a strict tool-call JSON payload. */
+export const isJsonToolCallContent = (content: unknown): boolean =>
+  extractJsonToolCallsFromContent(content) !== undefined;
 
 export interface DispatchedToolOutcome {
   name: string;

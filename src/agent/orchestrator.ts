@@ -11,7 +11,9 @@ import { searchKnowledge } from '../services/knowledgeService';
 import { getChatMaxContextMessages, getChatMaxToolRounds } from '../config';
 import {
   dispatchConversationTool,
+  extractJsonToolCallsFromContent,
   getTextToolDefinitions,
+  isJsonToolCallContent,
   TrustedConversationContext,
 } from './conversationTools';
 import { logger } from '../utils/logger';
@@ -233,6 +235,21 @@ SUPPORTED LANGUAGES & RULES:
 
     try {
       const first = await invokeFirst();
+      // Strict JSON-text fallback (text turns only): some local models emit
+      // the tool call as assistant content instead of structured tool_calls.
+      // Convert it into the standard representation so the existing tool
+      // loop executes it instead of leaking raw JSON to the customer.
+      // Legacy voice/Vapi turns are untouched (returned as-is below).
+      if (isTextTurn && (!first.toolCalls || first.toolCalls.length === 0)) {
+        const fallback = extractJsonToolCallsFromContent(first.content);
+        if (fallback) {
+          logger.info('Text turn JSON tool-call content recognized; routing to tool loop', {
+            conversationId: identity.conversationId ?? null,
+            tool: fallback[0].function.name,
+          });
+          first.toolCalls = fallback;
+        }
+      }
       logger.info('AgentOrchestrator turn completed', {
         conversationId: identity.conversationId ?? null,
         callId: identity.callId ?? null,
