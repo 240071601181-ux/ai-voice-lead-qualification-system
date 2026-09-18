@@ -145,6 +145,31 @@ describe('Phase 11: authentication API', () => {
     expect(unknown.body.error.message).toBe(wrong.body.error.message);
   });
 
+  it('fail-closes with a truthful, leak-free 500 when no secret is configured', async () => {
+    const saved = process.env.AUTH_JWT_SECRET;
+    delete process.env.AUTH_JWT_SECRET;
+    try {
+      const login = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: 'a@example.com', password: 'password-123' });
+      expect(login.status).toBe(500);
+      expect(login.body.error.message).toBe('Authentication is not configured');
+      const register = await request(app)
+        .post('/api/v1/auth/register')
+        .send({ email: 'b@example.com', password: 'password-123' });
+      expect(register.status).toBe(500);
+      for (const body of [login.body, register.body]) {
+        const blob = JSON.stringify(body);
+        expect(blob).not.toContain('AUTH_JWT_SECRET');
+        expect(blob).not.toContain('password-123');
+        expect(blob).not.toContain('password_hash');
+      }
+    } finally {
+      if (saved === undefined) delete process.env.AUTH_JWT_SECRET;
+      else process.env.AUTH_JWT_SECRET = saved;
+    }
+  });
+
   it('rate-limits credential stuffing with truthful 429', async () => {
     process.env.AUTH_LOGIN_MAX_ATTEMPTS = '2';
     resetLoginRateLimitsForTests();

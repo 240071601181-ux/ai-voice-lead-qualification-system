@@ -8,10 +8,15 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/api/errors";
 import {
+  LOGISTICS_EMPTY_COPY,
   NO_CONVERSATIONS_COPY,
+  QUALIFICATION_EMPTY_COPY,
   conversationErrorCopy,
   formatMessageTime,
+  formatStatusLabel,
   isComposerDisabled,
+  messageAlignment,
+  shouldShowComposerDisabledNote,
   tierBadgeCopy,
   toLogisticsStateRows,
   toVisibleMessages,
@@ -85,6 +90,46 @@ describe("composer gating and misc copy", () => {
   it("formats message timestamps without crashing on bad input", () => {
     expect(formatMessageTime("2026-09-17T10:00:00.000Z", new Date("2026-09-17T12:00:00.000Z"))).toMatch(/\d{1,2}:\d{2}/);
     expect(formatMessageTime("garbage")).toBe("");
+  });
+});
+
+describe("phase 12 layout helpers", () => {
+  it("labels statuses without exposing raw db casing", () => {
+    expect(formatStatusLabel("active")).toBe("Active");
+    expect(formatStatusLabel("completed")).toBe("Completed");
+    expect(formatStatusLabel("abandoned")).toBe("Abandoned");
+    expect(formatStatusLabel(undefined)).toBe("Unknown");
+  });
+
+  it("aligns user right and assistant left", () => {
+    expect(messageAlignment("user")).toBe("right");
+    expect(messageAlignment("assistant")).toBe("left");
+  });
+
+  it("shows the disabled-composer note only for non-active known states", () => {
+    expect(shouldShowComposerDisabledNote("completed")).toBe(true);
+    expect(shouldShowComposerDisabledNote("abandoned")).toBe(true);
+    expect(shouldShowComposerDisabledNote("active")).toBe(false);
+    expect(shouldShowComposerDisabledNote(undefined)).toBe(false);
+  });
+
+  it("keeps completed-conversation composer disabled while history stays visible", () => {
+    expect(isComposerDisabled("completed")).toBe(true);
+    // History filtering is independent of status: no rows are dropped by status.
+    expect(toVisibleMessages([msg({ id: "m1", role: "user", content: "hi" })])).toHaveLength(1);
+  });
+
+  it("maps all error kinds to user-friendly copy", () => {
+    expect(conversationErrorCopy(new ApiError("unauthorized", "x"))).toContain("signed out");
+    expect(conversationErrorCopy(new ApiError("not-found", "x"))).toContain("not found");
+    expect(conversationErrorCopy(new ApiError("conflict", "x"))).toBe("This conversation is no longer active.");
+    expect(conversationErrorCopy(new ApiError("rate-limited", "x"))).toContain("Too many");
+    expect(conversationErrorCopy(new ApiError("server", "x"))).toContain("Something went wrong");
+  });
+
+  it("uses exact empty-state copy without inventing scores", () => {
+    expect(QUALIFICATION_EMPTY_COPY).toContain("Not scored yet");
+    expect(LOGISTICS_EMPTY_COPY).toBe("No structured logistics details yet.");
   });
 });
 

@@ -1,4 +1,4 @@
-# Frontend Text Conversation (Phase 9)
+# Frontend Text Conversation (Phase 9 + Phase 12 polish)
 
 Real UI over the Express/PostgreSQL conversation API. No mock conversations,
 no fake assistant text, no second backend. Calls/Vapi UI is untouched.
@@ -95,4 +95,58 @@ no jsdom in this repo, so no renderer tests):
   header, envelope + error-kind mapping (401/404/409/429/500), network
   failure — fetch mocked at the boundary.
 - `components/app/conversationView.test.ts`: ordering/filtering, error copy,
-  composer gating, tier copy, logistics rows, timestamps, empty-state copy.
+  composer gating, tier copy, logistics rows, timestamps, empty-state copy,
+  plus Phase 12 layout helpers (`formatStatusLabel`, `messageAlignment`,
+  `shouldShowComposerDisabledNote`, empty-state constants, completed-composer
+  gating, full 401/404/409/429/500 copy).
+
+## Phase 12 — conversation-screen polish (no backend/API/auth changes)
+
+Final `/conversations/:id` structure:
+
+- Back link ("Back to Conversations") + header card: lead name (or
+  "Conversation" fallback), `Active/Completed/Abandoned` status chip,
+  channel chip, message count from `messageCount`, latest activity from
+  `updated_at`, truncated conversation id (full id in `title` tooltip only).
+- Main column: fixed-height `AIChatBox` (`clamp(480px, 68vh, 720px)`,
+  internally scrollable so the page never grows with history), user bubbles
+  right-aligned / assistant left-aligned, max width `min(70%, 38rem)` with
+  `overflow-wrap: anywhere` + `word-break: break-word` (long messages wrap,
+  no horizontal overflow), per-message timestamps, "Assistant is typing…"
+  loading row (`role="status"`), send-error row with Sign-in affordance on
+  401, disabled-composer note for non-active states.
+- Side column: Status panel (`Status: Active` label/value + confirmed
+  Complete/Abandon, disabled unless `active`), Lead panel (`Name/Phone/Status`
+  label/value rows + "Open lead →"), Qualification panel (`Score/Tier` rows +
+  `Criteria` list; empty state uses the exact
+  "Not scored yet. Qualification appears automatically once enough details
+  are known." copy — never an invented score), Logistics panel (backend rows
+  only, empty state "No structured logistics details yet."), Meeting panel
+  (explicit Start/End/Timezone/Title fields with spacing, an "Explicit time
+  required" banner, Check availability → Book meeting, never inferred from
+  `required_date`).
+- Layout CSS (`conversation-page/header/layout`, `panel-card`, `kv-list`,
+  `state-list`, `criteria-list`, `meeting-field`, status chips) lives in
+  `client/src/index.css`. Grid is `1fr + 300–360px` on desktop, stacks to a
+  single column ≤1100px (side panels become an auto-fit grid), single column
+  ≤760px. No horizontal overflow (`min-width: 0` + wrapping throughout).
+- Pure helpers added in `conversationView.ts`: `formatStatusLabel`,
+  `messageAlignment`, `shouldShowComposerDisabledNote`,
+  `QUALIFICATION_EMPTY_COPY`, `LOGISTICS_EMPTY_COPY`. No business logic or
+  mock data added for tests.
+
+Remaining known limitations:
+
+- Live browser QA against a running backend/DB was not executed in this
+  environment; flow correctness was verified statically (send appends the
+  persisted user+assistant pair in backend order with no optimistic fakes;
+  failures append nothing; Complete/Abandon refresh detail so the composer
+  disables while history stays; availability fires only from the explicit
+  check and Book stays disabled until `available === true`) plus unit/build
+  checks. Re-verify the Hi → Chennai→Bengaluru → 32 ft → ₹25000 script, the
+  401/404/409/429/500 states, Complete/Abandon transitions, and explicit-time
+  availability → booking in a live browser before release.
+- `server/frontend.contract.test.ts` fails pre-existing (missing
+  `client/src/pages/Home.tsx`); untouched by this phase.
+- Unrelated working-tree changes (`docs/authentication.md`, `src/app.ts`,
+  `src/tests/auth.test.ts`) were already present and left alone.

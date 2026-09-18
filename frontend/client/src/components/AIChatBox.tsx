@@ -114,7 +114,7 @@ export function AIChatBox({
   disabledMessage = "This conversation is no longer active.",
   placeholder = "Type your message...",
   className,
-  height = "600px",
+  height = "clamp(480px, 68vh, 720px)",
   emptyStateMessage = "Start a conversation with AI",
   suggestedPrompts,
 }: AIChatBoxProps) {
@@ -251,19 +251,21 @@ export function AIChatBox({
                     )}
 
                     <div
+                      data-testid={message.role === "user" ? "chat-bubble-user" : "chat-bubble-assistant"}
+                      data-align={message.role === "user" ? "right" : "left"}
                       className={cn(
-                        "max-w-[80%] rounded-lg px-4 py-2.5",
+                        "chat-bubble max-w-[min(70%,38rem)] min-w-0 rounded-lg px-4 py-2.5 break-words overflow-wrap-anywhere",
                         message.role === "user"
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted text-foreground"
                       )}
                     >
                       {message.role === "assistant" ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <div className="prose prose-sm dark:prose-invert max-w-none break-words overflow-wrap-anywhere">
                           <Streamdown>{message.content}</Streamdown>
                         </div>
                       ) : (
-                        <p className="whitespace-pre-wrap text-sm">
+                        <p className="whitespace-pre-wrap break-words text-sm overflow-wrap-anywhere">
                           {message.content}
                         </p>
                       )}
@@ -293,6 +295,9 @@ export function AIChatBox({
               {isLoading && (
                 <div
                   className="flex items-start gap-3"
+                  data-testid="chat-loading"
+                  role="status"
+                  aria-label="Assistant is typing"
                   style={
                     minHeightForLastMessage > 0
                       ? { minHeight: `${minHeightForLastMessage}px` }
@@ -302,8 +307,9 @@ export function AIChatBox({
                   <div className="size-8 shrink-0 mt-1 rounded-full bg-primary/10 flex items-center justify-center">
                     <Sparkles className="size-4 text-primary" />
                   </div>
-                  <div className="rounded-lg bg-muted px-4 py-2.5">
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <div className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2.5 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    <span>Assistant is typing…</span>
                   </div>
                 </div>
               )}

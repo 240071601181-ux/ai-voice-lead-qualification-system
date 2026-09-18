@@ -105,5 +105,10 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
     logger.info(`Server listening on port ${PORT}`);
+    // Visibility for the most common local misconfiguration: auth endpoints
+    // fail closed (500) without this server-only secret. Name only, never value.
+    if (!process.env.AUTH_JWT_SECRET) {
+      logger.warn('AUTH_JWT_SECRET is not set: POST /api/v1/auth/* will fail closed until it is configured');
+    }
   });
 }

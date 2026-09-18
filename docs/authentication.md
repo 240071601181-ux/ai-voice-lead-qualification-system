@@ -65,6 +65,14 @@ into fake multi-tenancy).
 Revokes the refresh session, clears the cookie, drops in-memory and cached
 conversation state. A logged-out refresh cookie is useless (revoked).
 
+## Local development prerequisite
+
+Auth endpoints fail closed with `500 Authentication is not configured` when
+`AUTH_JWT_SECRET` is unset — the login screen then shows its generic server
+error. Set a long random `AUTH_JWT_SECRET` in the backend `.env` (see
+`.env.example`) and restart the server. This is operational configuration,
+never code, and the secret must never be committed or shipped to the browser.
+
 ## Security assumptions
 
 - `AUTH_JWT_SECRET` and `CHAT_JWT_SECRET` are long, random, server-only,

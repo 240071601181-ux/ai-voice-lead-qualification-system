@@ -81,6 +81,28 @@ export function isComposerDisabled(status: ConversationStatus | undefined): bool
   return status !== "active";
 }
 
+/** Human label for a conversation status. Never invents new states. */
+export function formatStatusLabel(status: ConversationStatus | string | undefined | null): string {
+  if (!status) return "Unknown";
+  const s = String(status).toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Chat-bubble alignment for a visible role. System rows never reach the UI. */
+export function messageAlignment(role: VisibleMessageRole | string): "left" | "right" {
+  return role === "user" ? "right" : "left";
+}
+
+/** Whether the "messaging disabled" note should render for a status. */
+export function shouldShowComposerDisabledNote(status: ConversationStatus | undefined): boolean {
+  return status !== undefined && status !== "active";
+}
+
+export const QUALIFICATION_EMPTY_COPY =
+  "Not scored yet. Qualification appears automatically once enough details are known.";
+
+export const LOGISTICS_EMPTY_COPY = "No structured logistics details yet.";
+
 /** Tier badge copy. Unknown values render neutrally (never invented). */
 export function tierBadgeCopy(tier: QualificationTier | null | undefined): string {
   if (tier === "HOT" || tier === "WARM" || tier === "COLD") return tier;

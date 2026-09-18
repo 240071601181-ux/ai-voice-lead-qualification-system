@@ -48,43 +48,54 @@ export function MeetingPanel({ conversationId }: { conversationId: string }) {
   };
 
   return (
-    <Card className="panel-card">
+    <Card className="panel-card" data-testid="meeting-panel">
       <div className="panel-heading">
         <CalendarDays size={16} />
-        <b>Meeting</b>
+        <span className="panel-title">Meeting</span>
       </div>
-      <label className="field-label" htmlFor="meeting-start">Start (explicit)</label>
-      <input
-        id="meeting-start"
-        type="datetime-local"
-        value={start}
-        onChange={(e) => setStart(e.target.value)}
-        className="text-input"
-      />
-      <label className="field-label" htmlFor="meeting-end">End (explicit)</label>
-      <input
-        id="meeting-end"
-        type="datetime-local"
-        value={end}
-        onChange={(e) => setEnd(e.target.value)}
-        className="text-input"
-      />
-      <label className="field-label" htmlFor="meeting-tz">Timezone</label>
-      <input
-        id="meeting-tz"
-        value={timezone}
-        onChange={(e) => setTimezone(e.target.value)}
-        placeholder={DEFAULT_TIMEZONE}
-        className="text-input"
-      />
-      <label className="field-label" htmlFor="meeting-title">Title (optional)</label>
-      <input
-        id="meeting-title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Logistics discussion"
-        className="text-input"
-      />
+      <p className="panel-note panel-explicit">
+        Explicit time required — enter a start and end below. Nothing is inferred from the shipment date.
+      </p>
+      <div className="meeting-field">
+        <label className="field-label" htmlFor="meeting-start">Start</label>
+        <input
+          id="meeting-start"
+          type="datetime-local"
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+          className="text-input"
+        />
+      </div>
+      <div className="meeting-field">
+        <label className="field-label" htmlFor="meeting-end">End</label>
+        <input
+          id="meeting-end"
+          type="datetime-local"
+          value={end}
+          onChange={(e) => setEnd(e.target.value)}
+          className="text-input"
+        />
+      </div>
+      <div className="meeting-field">
+        <label className="field-label" htmlFor="meeting-tz">Timezone</label>
+        <input
+          id="meeting-tz"
+          value={timezone}
+          onChange={(e) => setTimezone(e.target.value)}
+          placeholder={DEFAULT_TIMEZONE}
+          className="text-input"
+        />
+      </div>
+      <div className="meeting-field">
+        <label className="field-label" htmlFor="meeting-title">Title (optional)</label>
+        <input
+          id="meeting-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Logistics discussion"
+          className="text-input"
+        />
+      </div>
       <div className="panel-actions">
         <Button variant="secondary" onClick={check} disabled={!slotReady || availability.isFetching}>
           {availability.isFetching ? "Checking…" : "Check availability"}
