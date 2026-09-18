@@ -335,7 +335,7 @@ SUPPORTED LANGUAGES & RULES:
             logger.info('Tool-loop continuation JSON tool-call recognized', {
               conversationId: ctx.conversationId,
               leadId: ctx.leadId ?? null,
-              round,
+              round: rounds,
               tool: fallback[0].function.name,
             });
             next.toolCalls = fallback;
