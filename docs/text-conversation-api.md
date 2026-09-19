@@ -2,7 +2,8 @@
 
 Backend API for text conversations. All endpoints live under
 `/api/v1/conversations`, require a bearer token, and are rate-limited.
-Vapi/call routes are untouched. No frontend, no qualification, and no
+(Phase 14: legacy Vapi/call routes retired — the conversation router is the
+primary API.) No frontend, no qualification, and no
 integration fan-out in this phase.
 
 ## Authentication

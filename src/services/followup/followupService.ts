@@ -150,8 +150,9 @@ const ALLOWED_WHATSAPP_TEMPLATES: WhatsappTemplateName[] = [
 ];
 
 /**
- * Fire-and-forget scheduling entry point for async tails (vapiService,
- * qualificationController). Never throws, never blocks the webhook response.
+ * Fire-and-forget scheduling entry point for async tails (conversation
+ * qualification fan-out, conversationController). Never throws, never
+ * blocks the response.
  */
 export const enqueueFollowupScheduling = (input: {
   leadId?: string | null;

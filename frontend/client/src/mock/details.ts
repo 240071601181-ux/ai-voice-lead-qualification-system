@@ -2,21 +2,10 @@
  * Phase 14C-2 – demo fixtures for detail routes.
  *
  * Frontend-only/demo data (no backend list APIs exist). IDs are stable so
- * list rows can deep-link to /calls/:id, /qualifications/:id, /calendar/:id.
+ * list rows can deep-link to /qualifications/:id, /calendar/:id.
+ * (Phase 14: voice-call fixtures retired with the Calls UI.)
  */
 import { leads } from "./pipeline";
-
-export type MockCall = {
-  id: string;
-  leadId: string;
-  direction: string;
-  channel: string;
-  duration: string;
-  outcome: string;
-  time: string;
-  language: string;
-  latency: string;
-};
 
 export type MockQualification = {
   id: string;
@@ -40,14 +29,6 @@ export type MockBooking = {
 
 const leadId = (index: number) => leads[index % leads.length].id;
 
-export const calls: MockCall[] = [
-  { id: "CALL-3001", leadId: leadId(0), direction: "Outbound", channel: "Outbound · English", duration: "1m 32s", outcome: "Qualified HOT", time: "Today, 09:24", language: "English", latency: "182ms" },
-  { id: "CALL-3002", leadId: leadId(1), direction: "Outbound", channel: "Outbound · Hindi", duration: "2m 04s", outcome: "Qualified HOT", time: "Today, 08:51", language: "Hindi", latency: "194ms" },
-  { id: "CALL-3003", leadId: leadId(2), direction: "Inbound", channel: "Inbound · English", duration: "48s", outcome: "Follow-up", time: "Today, 08:12", language: "English", latency: "201ms" },
-  { id: "CALL-3004", leadId: leadId(3), direction: "Outbound", channel: "Outbound · Hindi", duration: "1m 18s", outcome: "In review", time: "Today, 07:33", language: "Hindi", latency: "188ms" },
-  { id: "CALL-3005", leadId: leadId(4), direction: "Outbound", channel: "Outbound · English", duration: "—", outcome: "No answer", time: "Yesterday, 18:47", language: "English", latency: "—" },
-];
-
 export const qualifications: MockQualification[] = [
   { id: "QUAL-4001", leadId: leadId(0), score: 92, tier: "HOT", route: "Chennai → Mumbai", factors: [["Urgency", "30 / 30", 100], ["Budget alignment", "20 / 20", 100], ["Confirmed route", "20 / 20", 100], ["Vehicle readiness", "10 / 10", 100], ["Cargo details", "8 / 10", 80], ["Booking intent", "4 / 10", 40]] },
   { id: "QUAL-4002", leadId: leadId(1), score: 87, tier: "HOT", route: "Surat → Delhi", factors: [["Urgency", "30 / 30", 100], ["Budget alignment", "18 / 20", 90], ["Confirmed route", "20 / 20", 100], ["Vehicle readiness", "10 / 10", 100], ["Cargo details", "6 / 10", 60], ["Booking intent", "3 / 10", 30]] },
@@ -62,10 +43,8 @@ export const bookings: MockBooking[] = [
   { id: "MTG-5003", leadId: leadId(2), title: "Discovery — VK Industrial", when: "12 Sep · 11:00 IST", duration: "20 min", meetUrl: "https://meet.google.com/mdv-vk-1046", status: "Tentative", attendees: "Vikram Kulkarni · Maya Singh" },
 ];
 
-export const callIds = calls.map((c) => c.id);
 export const qualIds = qualifications.map((q) => q.id);
 
-export const findCall = (id: string | undefined) => calls.find((c) => c.id === id);
 export const findQualification = (id: string | undefined) => qualifications.find((q) => q.id === id);
 export const findBooking = (id: string | undefined) => bookings.find((b) => b.id === id);
 export const findLead = (id: string | undefined) => leads.find((l) => l.id === id);

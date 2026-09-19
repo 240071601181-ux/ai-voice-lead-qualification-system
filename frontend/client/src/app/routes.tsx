@@ -1,4 +1,4 @@
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 import { AppLayout, ToastProvider } from "@/layouts/AppLayout";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { RequireAuth } from "@/app/guards";
@@ -14,8 +14,6 @@ import LeadsPage from "@/pages/leads/LeadsPage";
 import LeadDetailPage from "@/pages/leads/LeadDetailPage";
 import LeadEditPage from "@/pages/leads/LeadEditPage";
 import LeadCreatePage from "@/pages/leads/LeadCreatePage";
-import CallsPage from "@/pages/calls/CallsPage";
-import CallDetailPage from "@/pages/calls/CallDetailPage";
 import ConversationsPage from "@/pages/conversations/ConversationsPage";
 import ConversationDetailPage from "@/pages/conversations/ConversationDetailPage";
 import QualificationsPage from "@/pages/qualifications/QualificationsPage";
@@ -83,8 +81,14 @@ export function Router() {
       {appRoute("/leads/:id/edit", "/leads", <LeadEditPage />)}
       {appRoute("/leads/:id", "/leads", <LeadDetailPage />)}
 
-      {appRoute("/calls", "/calls", <CallsPage />)}
-      {appRoute("/calls/:id", "/calls", <CallDetailPage />)}
+      {/* Phase 14 — legacy voice Calls retired: old /calls URLs redirect
+          to Conversations (text is the primary interaction model). */}
+      <Route path="/calls/:id">
+        <Redirect to="/conversations" />
+      </Route>
+      <Route path="/calls">
+        <Redirect to="/conversations" />
+      </Route>
 
       {appRoute("/conversations", "/conversations", <ConversationsPage />)}
       {appRoute("/conversations/:id", "/conversations", <ConversationDetailPage />)}

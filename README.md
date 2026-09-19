@@ -1,10 +1,12 @@
-# AI Voice Lead Qualification System
+# MadVoice AI — Text-First Lead Qualification System
 
 ## Overview
 
-A modular, production‑ready backend for an AI‑driven voice sales assistant tailored for logistics & transport companies. The system will:
-- Receive leads and automatically call them via Vapi.
-- Conduct multilingual conversations (Tamil, Hindi, English) using speech‑to‑text / text‑to‑speech.
+A modular, production‑ready system for AI‑driven lead qualification tailored
+for logistics & transport companies. Text conversations are the primary AI
+interaction model (Phase 14: the legacy voice/Vapi system is retired):
+- Capture leads and converse with them over real-time text chat (web).
+- Conduct multilingual conversations (Tamil, Hindi, English) via the LLM agent.
 - Qualify leads (HOT/WARM/COLD) and store all data in PostgreSQL.
 - Integrate with CRM, Google Calendar/Meet, WhatsApp and n8n for automation.
 
@@ -25,7 +27,9 @@ cp .env.example .env
 npm run dev
 ```
 
-The server starts on `http://localhost:3000` and exposes health‑check endpoints.
+The backend starts on `http://localhost:4000`, the frontend on
+`http://localhost:3000`. From the project root, `npm run dev:all` starts
+both (see `docs/local-development.md`). Health check: `GET /health`.
 
 ## Project Structure
 
@@ -36,7 +40,7 @@ ai-voice-lead-qualification/
 │  ├─ routes/          # Express route definitions
 │  ├─ controllers/     # Request handling logic
 │  ├─ services/        # Business logic & integrations
-│  ├─ integrations/    # Vapi, LLM, CRM, Calendar wrappers
+│  ├─ agent/           # Text-first agent: orchestrator, RAG, LLM, tools
 │  ├─ tools/           # Function‑calling utilities
 │  ├─ database/        # DB models & migrations
 │  ├─ middleware/      # Auth, error handling, logging

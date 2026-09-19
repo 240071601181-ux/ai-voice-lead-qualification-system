@@ -2,8 +2,13 @@
  * Phase 10 – n8n event type definitions.
  *
  * Backend domain events fanned out to n8n workflows via outbound HTTPS
- * webhooks. n8n is never in the real-time Vapi/LLM loop: delivery happens
+ * webhooks. n8n is never in the real-time LLM loop: delivery happens
  * only in async tails (fire-and-forget), and the LLM has no path to n8n.
+ *
+ * Phase 14: no active emitter produces `call.completed` (voice retired);
+ * the name stays allowlisted so subscribed workflows and historical
+ * replays keep validating. New events are conversation-anchored
+ * (`source: 'conversation'`).
  */
 
 export const N8N_EVENTS = [

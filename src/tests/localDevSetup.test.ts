@@ -69,7 +69,7 @@ describe('local development setup (permanent contract)', () => {
 
     it('answers OPTIONS preflight with Authorization and Content-Type allowed', async () => {
       const res = await request(app)
-        .options('/api/v1/calls/start')
+        .options('/api/v1/conversations')
         .set('Origin', 'http://localhost:3000')
         .set('Access-Control-Request-Method', 'POST')
         .set('Access-Control-Request-Headers', 'Content-Type, Authorization');

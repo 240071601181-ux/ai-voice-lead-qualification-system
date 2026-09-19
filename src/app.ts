@@ -5,14 +5,10 @@ import express, { Request, Response, NextFunction } from 'express';
 import { logger } from './utils/logger';
 import { getEnvDiagnostics } from './config/env';
 import leadRoutes from './routes/leadRoutes';
-import vapiWebhookRoutes from './routes/vapiWebhookRoutes';
 import knowledgeRoutes from './routes/knowledgeRoutes';
-import { handleCustomLlmChatCompletions } from './controllers/vapiCustomLlmController';
-import { handleVapiToolCalls } from './controllers/vapiToolController';
 import qualificationRoutes from './routes/qualificationRoutes';
 import calendarRoutes from './routes/calendarRoutes';
 import followupRoutes from './routes/followupRoutes';
-import callRoutes from './routes/callRoutes';
 import agentRoutes from './routes/agentRoutes';
 import authRoutes from './routes/authRoutes';
 import conversationRoutes from './routes/conversationRoutes';
@@ -74,19 +70,19 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Custom LLM OpenAI-compatible endpoint for Vapi
-app.post('/api/v1/vapi/custom-llm/chat/completions', handleCustomLlmChatCompletions);
-app.post('/api/v1/vapi/custom-llm/chat/completions/custom-tool', handleVapiToolCalls);
-
 // API routes (versioned)
+//
+// Phase 14 — legacy voice/Vapi retired: /api/v1/calls (outbound voice),
+// /api/v1/vapi/* (custom LLM + tool callbacks), and /api/v1/webhooks/vapi
+// are removed. Historical call rows remain readable through the retained
+// callRepository.findCallById compatibility read; the calls table is NOT
+// dropped (see docs/architecture.md).
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/leads', leadRoutes);
-app.use('/api/v1/webhooks/vapi', vapiWebhookRoutes);
 app.use('/api/v1/knowledge', knowledgeRoutes);
 app.use('/api/v1/qualifications', qualificationRoutes);
 app.use('/api/v1/calendar', calendarRoutes);
 app.use('/api/v1/followups', followupRoutes);
-app.use('/api/v1/calls', callRoutes);
 app.use('/api/v1/agent', agentRoutes);
 app.use('/api/v1/conversations', conversationRoutes);
 app.use('/api/v1/crm', crmRoutes);

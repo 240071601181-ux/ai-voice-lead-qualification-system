@@ -1,9 +1,12 @@
 # Text Conversation Tools (Phase 5 — Conversation-Anchored Execution)
 
+> **Phase 14:** the Vapi/call dispatcher (`handleVapiToolCalls`) and the
+> voice-only `endCall` tool are retired (deleted). The explicit text
+> allowlist below is unchanged and is now the sole tool surface.
+
 Phase 4 persisted LLM `toolCalls` without executing them. Phase 5 executes a
 safe subset for text conversations with `conversationId` as the primary
-identity. The Vapi/call path is unchanged: it still returns tool calls for
-server-side execution via `handleVapiToolCalls`.
+identity.
 
 ## Available tools (text)
 
@@ -13,7 +16,8 @@ server-side execution via `handleVapiToolCalls`.
 | `updateLeadInformation` | Updates contact fields of the linked lead only | Trusted `leadId` from the conversation record |
 | `getConversationState` | Read-only summary of this conversation's stored slots (answers "what's my pickup?") | Trusted `conversationId` |
 
-Not exposed to text: `endCall` (voice-call lifecycle only). No generic
+Retired (Phase 14, not exposed and no longer present): `endCall`
+(voice-call lifecycle). No generic
 `queryDatabase` / `executeSQL` / `runCommand` / `fetchURL` tool exists —
 verified by grep and by the allowlist test.
 
@@ -25,12 +29,11 @@ verified by grep and by the allowlist test.
 - `updateConversationState` — **call-specific, adapted (B)**: requires
   `callId`, writes the legacy table. Untouched; the text equivalent lives in
   `src/agent/conversationTools.ts` and writes `conversation_states`.
-- `endCall` — **call-specific, excluded (C)**: ends voice calls via
-  `handleEnded`. Never dispatched for text (rejected as unknown).
-- Validators, `ToolResult`, and the Vapi dispatcher
-  (`vapiToolController.handleVapiToolCalls`) are reused/extended, not
-  replaced — there is exactly one tool framework plus one thin
-  conversation-anchored dispatcher.
+- `endCall` — **retired (Phase 14)**: the voice-call tool and its
+  `handleEnded` executor were deleted with the voice services. The text
+  dispatcher rejects it as unknown.
+- Validators and `ToolResult` are reused/extended, not replaced — there is
+  exactly one tool framework plus one thin conversation-anchored dispatcher.
 
 ## Trusted identity resolution
 
@@ -71,8 +74,7 @@ load state → RAG → LLM ─┬─ no tool calls → final response
 ```
 
 - Text turns advertise `getTextToolDefinitions()` when the caller supplies
-  no tools. Call-anchored (Vapi) turns keep caller tools and return tool
-  calls unexecuted, exactly as before.
+  no tools.
 - The final assistant message is persisted only after the loop finishes —
   never before required tool execution completes.
 

@@ -1,9 +1,8 @@
-import { Activity, ArrowUpRight, CheckCircle2, Clock3, MessageCircle, Phone, Target } from "lucide-react";
+import { Activity, ArrowUpRight, CheckCircle2, Clock3, MessageCircle, Target } from "lucide-react";
 import { useLocation } from "wouter";
 import { Card } from "@/components/app/ui";
 
 const items = [
-  { icon: Phone, color: "cyan", title: "AI call completed", sub: "Meera Shah · 92 sec", time: "2m" },
   { icon: Target, color: "violet", title: "Lead qualified HOT", sub: "Arjun Rao · score 92", time: "8m" },
   { icon: MessageCircle, color: "green", title: "WhatsApp delivered", sub: "PS Pharma · template 04", time: "12m" },
   { icon: Clock3, color: "amber", title: "Follow-up scheduled", sub: "VK Industrial · tomorrow", time: "18m" },
@@ -14,9 +13,10 @@ const items = [
 /**
  * Phase 14C-12: activity stays fully mock/demo. Complete backend route audit
  * (src/app.ts + src/routes/*) confirms NO activity/audit-trail endpoint
- * exists — only /health, leads, webhooks/vapi (+ custom-llm), knowledge,
+ * exists — only /health, leads, conversations, knowledge,
  * qualifications, calendar, followups. No GET /api/v1/activity (or similar)
  * was invented. This timeline will switch once a backend endpoint lands.
+ * (Phase 14: the "AI call completed" voice item retired with voice.)
  * Demo-only activity timeline in the existing visual language.
  */
 export default function ActivityPage() {

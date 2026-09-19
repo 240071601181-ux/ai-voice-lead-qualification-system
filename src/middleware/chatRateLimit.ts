@@ -5,9 +5,8 @@ import { NextFunction, Request, Response } from 'express';
  *
  * The repo has no rate-limiting dependency or equivalent, and the hand-rolled
  * approach matches existing conventions (custom CORS, custom validators).
- * Applied ONLY to the conversation router — Vapi webhooks and all legacy
- * routes are untouched. Limits come from the environment per request so
- * tests can reconfigure without module reloads.
+ * Applied ONLY to the conversation router. Limits come from the environment
+ * per request so tests can reconfigure without module reloads.
  *
  * Single-instance memory store: suitable as abuse protection in front of a
  * single Node process. Documented limitation — use a shared store when

@@ -30,7 +30,7 @@ const router = Router();
 // pasted-token fallback for dev/test only (forced off in production).
 // Identity resolution runs for every route; ownership enforcement runs for
 // every :id route (resource-hiding 404s). Rate limits apply only to this
-// router — Vapi webhooks and legacy routes are unaffected.
+// router.
 router.use(resolveConversationIdentity);
 router.use(generalConversationRateLimit);
 

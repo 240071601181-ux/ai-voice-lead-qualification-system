@@ -1,16 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  CalendarDays,
   ChevronRight,
-  Database,
-  MessageCircle,
-  Mic2,
   Pause,
-  Phone,
   Play,
-  ShieldCheck,
 } from "lucide-react";
-import { AmbientShards, Button, Card, IconView } from "@/components/app/ui";
+import { AmbientShards, Button, Card } from "@/components/app/ui";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { pageMeta } from "@/mock/pipeline";
-import type { IconType } from "@/mock/pipeline";
 import { useToast } from "@/layouts/AppLayout";
 import {
   useAgentConfigQuery,
@@ -34,10 +27,10 @@ import type { AgentConfig, AgentConfigPatch } from "@/api/types";
 type BehaviorKey = "greeting" | "qualificationQuestions" | "escalationBehavior" | "callEnding";
 
 const BEHAVIOR_META: { key: BehaviorKey; label: string; hint: string }[] = [
-  { key: "greeting", label: "Greeting", hint: "How the agent opens the call." },
+  { key: "greeting", label: "Greeting", hint: "How the assistant opens the conversation." },
   { key: "qualificationQuestions", label: "Qualification questions", hint: "One question per line." },
   { key: "escalationBehavior", label: "Escalation behavior", hint: "When and how to hand off to a human." },
-  { key: "callEnding", label: "Call ending", hint: "How the agent closes the call." },
+  { key: "callEnding", label: "Conversation ending", hint: "How the assistant closes the conversation." },
 ];
 
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -82,16 +75,14 @@ function draftToValue(key: BehaviorKey, draft: string): string | string[] {
  * AI Agent page — operator view over the real backend agent configuration
  * (GET/PATCH /api/v1/agent/config, POST /pause + /resume, GET /health).
  *
- * Honesty rules enforced here:
- * - No "Listening" claim: this UI has no live voice/browser session source,
- *   so an active agent is shown as "Standby — not in call" and the waveform
- *   is labeled as a decorative visual with no live audio.
+ * Phase 14: the decorative voice orb, telephony status, and demo tool-access
+ * list are retired with voice. What remains is generic conversation-assistant
+ * management:
  * - Pause/resume persist backend-side (no local-only state).
  * - Health shows "--" / Unavailable: the backend collects no aggregate
  *   telemetry, so no demo percentages are presented as live metrics.
  * - Languages/voice render actual backend configuration values, marked as
- *   static backend configuration. Actual voice calling stays dependent on
- *   telephony configuration (see telephony status below).
+ *   static backend configuration.
  */
 function AIPage({ onToast }: { onToast: (message: string) => void }) {
   const configQuery = useAgentConfigQuery();
@@ -112,19 +103,18 @@ function AIPage({ onToast }: { onToast: (message: string) => void }) {
     if (!config || pendingPause) return;
     if (paused) {
       resumeMutation.mutate(undefined, {
-        onSuccess: () => onToast("Voice agent resumed"),
+        onSuccess: () => onToast("Agent resumed"),
         onError: (error) => onToast(`Could not resume agent: ${getUserMessage(error)}`),
       });
     } else {
       pauseMutation.mutate(undefined, {
-        onSuccess: () => onToast("Voice agent paused"),
+        onSuccess: () => onToast("Agent paused"),
         onError: (error) => onToast(`Could not pause agent: ${getUserMessage(error)}`),
       });
     }
   };
 
-  const statusLabel = paused ? "Agent paused" : "Active — standby (not in call)";
-  const orbLabel = paused ? "Paused" : "Standby";
+  const statusLabel = paused ? "Agent paused" : "Active";
   const languages = (config?.languages ?? []).map((code) => LANGUAGE_NAMES[code] ?? code).join(" · ") || "—";
 
   return (
@@ -148,41 +138,24 @@ function AIPage({ onToast }: { onToast: (message: string) => void }) {
         <Card className="agent-visual">
           <div className="card-header">
             <div>
-              <span className="section-kicker">VOICE AGENT</span>
+              <span className="section-kicker">TEXT ASSISTANT</span>
               <h2>{config ? `${config.name} ${config.version}` : "MadVoice Qualifier v2.4"}</h2>
             </div>
-            <span className="connected-chip">
-              <ShieldCheck size={13} />
-              {healthQuery.isPending ? "Checking…" : health?.telephonyConfigured ? "Connected" : "Not connected"}
+            <span className={`status-chip ${paused ? "status-abandoned" : "status-active"}`}>
+              {configQuery.isPending ? "Loading…" : paused ? "Paused" : "Active"}
             </span>
-          </div>
-          <div className={`voice-orb ${paused ? "paused" : "standby"}`}>
-            <div className="orb-ring ring-1" />
-            <div className="orb-ring ring-2" />
-            <div className="orb-core"><Mic2 size={30} /><span>{orbLabel}</span></div>
-          </div>
-          <div className="waveform" aria-hidden="true">
-            {Array.from({ length: 36 }).map((_, i) => (
-              <i key={i} style={{ height: `${12 + ((i * 17) % 42)}px`, animationDelay: `${i * 20}ms` }} />
-            ))}
           </div>
           <p className="lede" style={{ textAlign: "center" }}>
             {paused
-              ? "Agent is paused. Resume to return it to standby."
-              : "Not in call — decorative visual, no live audio."}
+              ? "Agent is paused. Resume to handle conversations again."
+              : "Handling text conversations. Pause to stop new replies."}
           </p>
           <div className="agent-stats">
             <span><small>LANGUAGE</small><b>{configQuery.isPending ? "Loading…" : languages}</b></span>
             <span><small>VOICE</small><b>{configQuery.isPending ? "Loading…" : config?.voice ?? "—"}</b></span>
-            <span>
-              <small>TELEPHONY</small>
-              <b className="accent-text">
-                {healthQuery.isPending ? "Loading…" : health?.telephonyConfigured ? "Configured" : "Not configured"}
-              </b>
-            </span>
           </div>
           <p className="lede" style={{ textAlign: "center" }}>
-            Languages and voice are static backend configuration. Voice calling requires telephony configuration.
+            Languages and voice are static backend configuration.
           </p>
         </Card>
         <Card className="config-card">
@@ -229,7 +202,7 @@ function AIPage({ onToast }: { onToast: (message: string) => void }) {
             </span>
           </div>
           <div className="performance-grid">
-            <div><strong>--</strong><span>Call connection</span></div>
+            <div><strong>--</strong><span>Text conversations</span></div>
             <div><strong>--</strong><span>Qualification rate</span></div>
             <div><strong>--</strong><span>Conversation quality</span></div>
             <div><strong>--</strong><span>Avg. first response</span></div>
@@ -241,18 +214,6 @@ function AIPage({ onToast }: { onToast: (message: string) => void }) {
                 ? `Could not load health: ${getUserMessage(healthQuery.error)}`
                 : health?.metricsReason ?? "Unavailable"}
           </p>
-        </Card>
-        <Card className="tools-card">
-          <div className="card-header"><div><span className="section-kicker">TOOL ACCESS</span><h2>Connected capabilities</h2></div></div>
-          <div className="tool-list">
-            {[[Phone, "Voice gateway", "Operational"], [Database, "CRM lookup", "Operational"], [MessageCircle, "WhatsApp send", "Operational"], [CalendarDays, "Calendar booking", "Needs review"]].map(([I, name, status]) => (
-              <div key={name as string}>
-                <span className="tool-icon"><IconView icon={I as IconType} size={15} /></span>
-                <b>{name as string}</b>
-                <span className={status === "Operational" ? "tool-status" : "tool-status warning"}>{status as string}</span>
-              </div>
-            ))}
-          </div>
         </Card>
       </div>
       {config ? (

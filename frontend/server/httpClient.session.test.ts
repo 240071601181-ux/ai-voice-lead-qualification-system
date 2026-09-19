@@ -14,7 +14,7 @@ function jsonResponse(status: number, payload: unknown) {
   };
 }
 
-describe("httpClient platform-session forwarding (Start call 401 fix)", () => {
+describe("httpClient platform-session forwarding (session 401 fix)", () => {
   const store = new Map<string, string>();
   let captured: { url: string; init: CapturedInit } | null = null;
   let nextResponse: unknown = { success: true, data: { ok: true } };
@@ -47,15 +47,15 @@ describe("httpClient platform-session forwarding (Start call 401 fix)", () => {
     delete (globalThis as any).sessionStorage;
   });
 
-  it("login: sends cookie mode plus the Bearer mirror with the start-call request", async () => {
+  it("login: sends cookie mode plus the Bearer mirror with an authenticated request", async () => {
     // Logged-in mirror as written by the platform runtime.
     store.set("manus-cookie", "app_session_id=sess-abc; other=x");
-    const data = await request<{ ok: boolean }>("POST", "/api/v1/calls/start", {
+    const data = await request<{ ok: boolean }>("POST", "/api/v1/conversations", {
       baseUrl: BASE,
       body: { leadId: "lead-1" },
     });
     expect(data).toEqual({ ok: true });
-    expect(captured!.url).toBe(`${BASE}/api/v1/calls/start`);
+    expect(captured!.url).toBe(`${BASE}/api/v1/conversations`);
     expect(captured!.init.credentials).toBe("include");
     expect(captured!.init.headers?.["Authorization"]).toBe("Bearer sess-abc");
     expect(captured!.init.headers?.["Content-Type"]).toBe("application/json");
@@ -64,7 +64,7 @@ describe("httpClient platform-session forwarding (Start call 401 fix)", () => {
   it("logout: sends no Authorization once the mirror is cleared, keeping cookie mode", async () => {
     // demoLogout()/logout remove the mirror; the server clears the cookie.
     store.delete("manus-cookie");
-    await request("POST", "/api/v1/calls/start", { baseUrl: BASE, body: { leadId: "lead-1" } });
+    await request("POST", "/api/v1/conversations", { baseUrl: BASE, body: { leadId: "lead-1" } });
     expect(captured!.init.credentials).toBe("include");
     expect(captured!.init.headers?.["Authorization"]).toBeUndefined();
   });
@@ -72,7 +72,7 @@ describe("httpClient platform-session forwarding (Start call 401 fix)", () => {
   it("still surfaces a real 401 as unauthorized (logout detectable, message preserved)", async () => {
     nextStatus = 401;
     nextResponse = { success: false, error: { message: "Unauthorized", code: 401 } };
-    const err = await request("POST", "/api/v1/calls/start", {
+    const err = await request("POST", "/api/v1/conversations", {
       baseUrl: BASE,
       body: { leadId: "lead-1" },
     }).catch((e) => e);

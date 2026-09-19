@@ -18,9 +18,9 @@ describe('CORS credential support', () => {
     expect(res.headers['access-control-allow-credentials']).toBe('true');
   });
 
-  it('answers preflight for the start-call endpoint with auth headers allowed', async () => {
+  it('answers preflight for the conversation API with auth headers allowed', async () => {
     const res = await request(app)
-      .options('/api/v1/calls/start')
+      .options('/api/v1/conversations')
       .set('Origin', 'http://localhost:5173')
       .set('Access-Control-Request-Method', 'POST')
       .set('Access-Control-Request-Headers', 'Content-Type, Authorization');

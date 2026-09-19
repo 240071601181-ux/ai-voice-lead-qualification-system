@@ -20,11 +20,8 @@ import { logger } from '../utils/logger';
 /**
  * Phase 5 — conversation-anchored tool execution.
  *
- * Extends (never replaces) the existing tool framework in agent/tools.ts:
- * - The legacy Vapi dispatcher (vapiToolController.handleVapiToolCalls) and
- *   the call-anchored executors (updateConversationState, endCall) are
- *   untouched; `endCall` is deliberately NOT exposed to text.
- * - This module adapts the reusable tools for text by injecting a trusted
+ * Extends (never replaces) the existing tool framework in agent/tools.ts.
+ * This module adapts the reusable tools for text by injecting a trusted
  *   identity resolved by the backend from the authenticated conversation
  *   record. Anything the LLM supplies as an identity (leadId,
  *   conversationId, callId, userId) is ignored or rejected — never trusted.
@@ -44,7 +41,7 @@ export interface TrustedConversationContext {
   leadId: string | null;
 }
 
-/** Tools the text assistant may invoke. `endCall` is voice-only. */
+/** Tools the text assistant may invoke (explicit allowlist). */
 export const TEXT_TOOL_NAMES = [
   'updateConversationState',
   'updateLeadInformation',

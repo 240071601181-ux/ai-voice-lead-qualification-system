@@ -51,7 +51,6 @@ export const navGroups: { label: string; items: { label: string; icon: IconType;
   { label: "OPERATIONS", items: [
     { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
     { label: "Leads", icon: Users, path: "/leads", badge: "24" },
-    { label: "Calls", icon: Phone, path: "/calls" },
     { label: "Conversations", icon: MessageSquareText, path: "/conversations" },
     { label: "Qualifications", icon: Target, path: "/qualifications" },
     { label: "Follow-ups", icon: Clock3, path: "/followups", badge: "5" },
@@ -77,12 +76,11 @@ export const navGroups: { label: string; items: { label: string; icon: IconType;
 export const pageMeta: Record<string, { title: string; eyebrow: string; description: string }> = {
   "/dashboard": { title: "Operations overview", eyebrow: "GOOD MORNING, MAYA", description: "Here’s the signal from your logistics pipeline today." },
   "/leads": { title: "Leads", eyebrow: "PIPELINE / LEADS", description: "Qualify, route, and move every opportunity forward." },
-  "/calls": { title: "Call operations", eyebrow: "OPERATIONS / CALLS", description: "Monitor AI-led conversations and human handoffs." },
   "/conversations": { title: "Conversations", eyebrow: "OPERATIONS / TEXT CHAT", description: "Real-time text conversations with the logistics assistant." },
   "/qualifications": { title: "Qualifications", eyebrow: "OPERATIONS / SIGNAL", description: "Review the quality and intent behind every lead." },
   "/followups": { title: "Follow-ups", eyebrow: "OPERATIONS / FOLLOW-UPS", description: "Keep the next best action in motion." },
-  "/ai-agent": { title: "AI agent", eyebrow: "AI SYSTEMS / VOICE AGENT", description: "Tune the voice that qualifies your next customer." },
-  "/knowledge": { title: "Knowledge base", eyebrow: "AI SYSTEMS / RETRIEVAL", description: "The logistics intelligence layer behind every call." },
+  "/ai-agent": { title: "AI agent", eyebrow: "AI SYSTEMS / ASSISTANT", description: "Tune the assistant that qualifies your next customer." },
+  "/knowledge": { title: "Knowledge base", eyebrow: "AI SYSTEMS / RETRIEVAL", description: "The logistics intelligence layer behind every conversation." },
   "/crm": { title: "CRM sync", eyebrow: "INTEGRATIONS / CRM", description: "Keep your customer record and qualification signal aligned." },
   "/whatsapp": { title: "WhatsApp", eyebrow: "INTEGRATIONS / MESSAGING", description: "Turn a qualified conversation into a timely follow-up." },
   "/calendar": { title: "Calendar", eyebrow: "INTEGRATIONS / MEETINGS", description: "Convert intent into a confirmed next conversation." },

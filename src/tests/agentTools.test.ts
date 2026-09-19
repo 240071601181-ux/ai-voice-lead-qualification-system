@@ -2,10 +2,8 @@ import { agentConfig } from '../agent/config';
 import {
   updateLeadInformation,
   updateConversationState,
-  endCall,
   validateUpdateLeadPayload,
-  validateUpdateConversationStatePayload,
-  validateEndCallPayload
+  validateUpdateConversationStatePayload
 } from '../agent/tools';
 import { pool } from '../database';
 
@@ -102,32 +100,11 @@ describe('Agent Tools & Payload Validation', () => {
     });
   });
 
-  describe('endCall', () => {
-    it('should validate valid endCall payload', () => {
-      const errors = validateEndCallPayload({ callId: 'call-123', reason: 'Customer completed requirements' });
-      expect(errors).toHaveLength(0);
-    });
-
-    it('should catch missing callId in endCall payload', () => {
-      const errors = validateEndCallPayload({});
-      expect(errors).toContain('callId is required and must be a string');
-    });
-
-    it('should execute endCall and update internal call status with mocked DB', async () => {
-      // findCallByVapiId (first query)
-      (pool.query as jest.Mock).mockResolvedValueOnce({
-        rows: [{ id: 'call-123', vapi_call_id: 'call-123', status: 'initiated', started_at: new Date().toISOString() }]
-      });
-      (pool.query as jest.Mock).mockResolvedValueOnce({
-        rows: [{ id: 'call-123', vapi_call_id: 'call-123', status: 'initiated' }]
-      });
-      // upsertCall (second query)
-      (pool.query as jest.Mock).mockResolvedValueOnce({
-        rows: [{ id: 'call-123', vapi_call_id: 'call-123', status: 'ended' }]
-      });
-      const res = await endCall({ callId: 'call-123' });
-      expect(res.success).toBe(true);
-      expect(res.message).toContain('Call ended');
+  describe('voice retirement (Phase 14)', () => {
+    it('no longer exposes the voice-only endCall tool', () => {
+      const tools = require('../agent/tools');
+      expect(tools.endCall).toBeUndefined();
+      expect(tools.validateEndCallPayload).toBeUndefined();
     });
   });
 });

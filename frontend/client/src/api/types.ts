@@ -535,74 +535,12 @@ export interface WorkspaceSettingsPatch {
 }
 
 // ---------------------------------------------------------------------------
-// Calls  (backend: POST /api/v1/calls/start -> real Vapi outbound call)
-// ---------------------------------------------------------------------------
-
-export interface StartCallInput {
-  leadId: string;
-}
-
-export interface StartCallResult {
-  callId: string;
-  vapiCallId: string;
-  status: string;
-  vapiStatus: string;
-  leadId: string | null;
-}
-
-// ---------------------------------------------------------------------------
 // Health  (backend: GET /health -> { status, timestamp })
 // ---------------------------------------------------------------------------
 
 export interface HealthStatus {
   status: string;
   timestamp: string;
-}
-
-// ---------------------------------------------------------------------------
-// Agent custom LLM  (backend: src/controllers/vapiCustomLlmController.ts)
-//
-// OpenAI-compatible chat-completions shape — NOTE this endpoint does NOT use
-// the standard { success, data } envelope. The shared httpClient passes such
-// non-envelope JSON through verbatim on success.
-// ---------------------------------------------------------------------------
-
-export interface AgentChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  name?: string;
-  tool_call_id?: string;
-}
-
-export interface AgentChatCompletionInput {
-  /** Required by the backend; must be a non-empty array. */
-  messages: AgentChatMessage[];
-  /** Optional; backend defaults to its configured agent model. */
-  model?: string;
-  /**
-   * No call context is ever sent from this layer: without a call id the
-   * orchestrator answers statelessly (no conversation state is read or
-   * written). Streaming (SSE) is intentionally unsupported here.
-   */
-  tools?: unknown[];
-}
-
-export interface AgentChatCompletionChoice {
-  index: number;
-  message: {
-    role: string;
-    content: string;
-    tool_calls?: unknown[];
-  };
-  finish_reason: string | null;
-}
-
-export interface AgentChatCompletionResult {
-  id: string;
-  object: string;
-  created: number;
-  model: string;
-  choices: AgentChatCompletionChoice[];
 }
 
 // ---------------------------------------------------------------------------
@@ -642,8 +580,7 @@ export interface AgentHealth {
   paused: boolean;
   name: string;
   version: string;
-  telephonyConfigured: boolean;
-  /** Always false: this UI has no live voice/browser session source. */
+  /** Always false: this UI has no live browser session source. */
   liveSession: boolean;
   /** Always null: no aggregate telemetry is collected backend-side. */
   metrics: null;

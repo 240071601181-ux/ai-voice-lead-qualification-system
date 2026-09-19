@@ -1,4 +1,11 @@
-# Text Conversation Architecture (Phase 1 — Compatibility)
+# Text Conversation Architecture (Phase 1 — Compatibility; Phase 14 — Voice Retired)
+
+> **Phase 14:** the legacy voice path below is retired — Vapi routes,
+> webhook handlers, call services, the `endCall` tool, and `VAPI_*` config
+> are removed. `callId` remains only as a compatibility identity for
+> historical call-anchored records (see `resolveAgentIdentity`);
+> `calls` and old `conversation_state` tables are retained read-only.
+> The text flow is unchanged and is now the sole primary path.
 
 MadLead AI is migrating from voice calls to text conversations. Phase 1 introduces
 the conversation-first architecture **without removing the legacy voice path**.
@@ -19,12 +26,13 @@ AgentOrchestrator.processTurn({ conversationId, messages, ... })
 Conversation state → RAG → LLM → Tools → response
 ```
 
-Legacy (compatibility, unchanged behavior):
+Legacy (compatibility — Phase 14: voice services removed; only the
+`callId` identity and historical rows remain readable):
 
 ```
 Lead
  ↓
-Call / Vapi (callId)
+Historical call record (callId, read-only)
  ↓
 AgentOrchestrator.processTurn({ callId, messages, ... })
  ↓
@@ -54,13 +62,15 @@ Call-anchored state → RAG → LLM → Tools → response
   `textConversationDefaults` (`defaultChannel: 'web'`, shared `maxTurns`
   budget). No voice config removed.
 
-## Compatibility guarantees
+## Compatibility guarantees (Phase 1; updated Phase 14)
 
-- All Vapi routes, webhook handlers, call services, and `callId` tool paths
-  are unchanged and still compile.
+- Phase 1: all Vapi routes, webhook handlers, call services, and `callId`
+  tool paths were unchanged and still compiled; no migrations created.
+- Phase 14: the voice routes/services/tool/config above are retired
+  (deleted). `callId` identity support, the `calls` table, and the old
+  `conversation_state` table are retained for historical reads only.
 - No database migrations were created or altered; no `calls` /
-  `conversation_state` schema changes.
-- No frontend changes.
+  `conversation_state` schema changes, no data destroyed.
 
 ## Persistence layer (Phase 2)
 
@@ -100,7 +110,7 @@ AgentOrchestrator
 
 ## Phase 4 — multi-turn text agent (history → state → RAG → LLM)
 
-Per-turn flow (text only; Vapi/call path unchanged):
+Per-turn flow (text only — the sole primary path since Phase 14):
 
 ```
 Message history (persisted, chronological)

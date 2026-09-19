@@ -7,7 +7,7 @@ describe("global search page index", () => {
     for (const required of [
       "/dashboard",
       "/leads",
-      "/calls",
+      "/conversations",
       "/qualifications",
       "/followups",
       "/calendar",
@@ -24,6 +24,8 @@ describe("global search page index", () => {
     ]) {
       expect(paths).toContain(required);
     }
+    // Phase 14: legacy voice Calls retired — old /calls URLs redirect.
+    expect(paths).not.toContain("/calls");
   });
 
   it("matches a page name such as Calendar", () => {
@@ -34,7 +36,7 @@ describe("global search page index", () => {
   it("matches case-insensitively across labels, paths, and keywords", () => {
     expect(filterSearchPages("cal").map((p) => p.path)).toContain("/calendar");
     expect(filterSearchPages("LEADS").map((p) => p.path)).toContain("/leads");
-    expect(filterSearchPages("voice").map((p) => p.path)).toContain("/calls");
+    expect(filterSearchPages("conversations").map((p) => p.path)).toContain("/conversations");
   });
 
   it("returns everything on empty query and nothing on no-match", () => {

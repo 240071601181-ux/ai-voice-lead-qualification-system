@@ -27,11 +27,6 @@ export type UpdateConversationStatePayload = {
   }>;
 };
 
-export type EndCallPayload = {
-  callId: string;
-  reason?: string;
-};
-
 export interface ToolResult {
   success: boolean;
   message?: string;
@@ -81,21 +76,13 @@ export const validateUpdateConversationStatePayload = (payload: any): string[] =
   return errors;
 };
 
-export const validateEndCallPayload = (payload: any): string[] => {
-  const errors: string[] = [];
-  if (!payload || typeof payload !== 'object') {
-    errors.push('Payload must be an object');
-    return errors;
-  }
-  if (!payload.callId || typeof payload.callId !== 'string') {
-    errors.push('callId is required and must be a string');
-  }
-  return errors;
-};
-
+/**
+ * Phase 14 — the voice-only `endCall` tool (and its payload/validator) is
+ * retired with the Vapi services. The text assistant allowlist in
+ * conversationTools.ts never included it.
+ */
 import { updateState } from '../services/conversationStateService';
 import { updateLead } from '../repositories/leadRepository';
-import { handleEnded } from '../services/callService';
 import { logger } from '../utils/logger';
 
 export const updateLeadInformation = async (payload: UpdateLeadInformationPayload): Promise<ToolResult> => {
@@ -130,22 +117,6 @@ export const updateConversationState = async (payload: UpdateConversationStatePa
     return { success: true, message: 'Conversation state updated successfully' };
   } catch (err: any) {
     logger.error('Error in updateConversationState tool', { error: err.message });
-    return { success: false, errors: [err.message] };
-  }
-};
-
-export const endCall = async (payload: EndCallPayload): Promise<ToolResult> => {
-  const errors = validateEndCallPayload(payload);
-  if (errors.length > 0) {
-    return { success: false, errors };
-  }
-  try {
-    // Controlled internal database call status update only (no illegal external API calls)
-    await handleEnded({ event: { data: { callId: payload.callId, reason: payload.reason || 'Agent ended call' } } });
-    logger.info('Tool endCall executed successfully (internal status updated to ended)', { callId: payload.callId });
-    return { success: true, message: 'Call ended and internal status updated' };
-  } catch (err: any) {
-    logger.error('Error in endCall tool', { error: err.message });
     return { success: false, errors: [err.message] };
   }
 };

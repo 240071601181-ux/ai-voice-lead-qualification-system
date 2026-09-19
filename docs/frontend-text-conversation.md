@@ -1,7 +1,8 @@
-# Frontend Text Conversation (Phase 9 + Phase 12 polish)
+# Frontend Text Conversation (Phase 9 + Phase 12 polish + Phase 14 voice retirement)
 
 Real UI over the Express/PostgreSQL conversation API. No mock conversations,
-no fake assistant text, no second backend. Calls/Vapi UI is untouched.
+no fake assistant text, no second backend. (Phase 14: legacy Calls/Vapi UI
+retired â€” old `/calls` URLs redirect to `/conversations`.)
 
 ## Routes
 
@@ -156,7 +157,7 @@ QA rows removed afterwards).
 
 ### Responsive layout
 
-- Desktop: CSS grid `minmax(0,1fr) minmax(300px,360px)` — conversation +
+- Desktop: CSS grid `minmax(0,1fr) minmax(300px,360px)` ï¿½ conversation +
   messages left; Status / Lead / Qualification / Logistics / Meeting stacked
   right (`ConversationDetailPage.tsx` + `conversation-layout` in
   `index.css`).
@@ -164,7 +165,7 @@ QA rows removed afterwards).
   (`minmax(min(260px,100%),1fr)`) so cards keep normal width instead of
   squeezing. 760px and below: single column, tighter label columns.
 - `min-width: 0` on every grid/flex child; `overflow-wrap: anywhere` on
-  bubbles, rows, and notes — no horizontal page overflow at 768–1920px.
+  bubbles, rows, and notes ï¿½ no horizontal page overflow at 768ï¿½1920px.
 - Panel action buttons use flexible height (`min-height: 35px`, wrapping
   labels) so "Check availability" never clips inside narrow cards.
 - The chat box keeps a fixed `clamp(480px, 68vh, 720px)` height with
@@ -182,17 +183,17 @@ QA rows removed afterwards).
 | Open conversation (row click) | `useConversationQuery` to `GET /:id` | detail render; 404 shows "Conversation not found." |
 | Send (composer / suggested prompt) | `useSendConversationMessageMutation` to `POST /:id/messages {content}` (60s timeout) | appends persisted pair, invalidates detail/state/lists, seeds qualification; failure keeps text for retry |
 | Retry (detail / messages / panels) | query `refetch()` | re-fires the same endpoint |
-| Score now | `useQualifyConversationMutation` to `POST /:id/qualification` | "Scoring…", duplicate clicks blocked, seeds qualification cache; 422 shows the backend reason (e.g. no state yet) |
+| Score now | `useQualifyConversationMutation` to `POST /:id/qualification` | "Scoringï¿½", duplicate clicks blocked, seeds qualification cache; 422 shows the backend reason (e.g. no state yet) |
 | Complete / Abandon | `useCompleteConversationMutation` / `useAbandonConversationMutation` to `POST /:id/complete` / `POST /:id/abandon` | confirm dialog with pending labels, invalidates detail + lists; composer disables off status |
-| Check availability | `useConversationAvailabilityQuery` to `GET /:id/calendar/availability?start&end&timezone` | "Checking…", result line; errors show truthful copy + Retry |
-| Book meeting | `useBookConversationMeetingMutation` to `POST /:id/calendar/book` | "Booking…", booking card (status, start/end, Meet link when returned); never auto-books |
+| Check availability | `useConversationAvailabilityQuery` to `GET /:id/calendar/availability?start&end&timezone` | "Checkingï¿½", result line; errors show truthful copy + Retry |
+| Book meeting | `useBookConversationMeetingMutation` to `POST /:id/calendar/book` | "Bookingï¿½", booking card (status, start/end, Meet link when returned); never auto-books |
 | Open lead | router link | `GET /leads/:id` page |
 
 ### Loading states
 
-Score now to "Scoring…"; Check availability to "Checking…"; Book meeting to
-"Booking…"; Create to "Creating…"; Complete/Abandon confirms to
-"Completing…"/"Abandoning…"; send to "Assistant is typing…" plus a disabled
+Score now to "Scoringï¿½"; Check availability to "Checkingï¿½"; Book meeting to
+"Bookingï¿½"; Create to "Creatingï¿½"; Complete/Abandon confirms to
+"Completingï¿½"/"Abandoningï¿½"; send to "Assistant is typingï¿½" plus a disabled
 composer. Triggers stay disabled while their mutation is pending.
 
 ### Error handling (`conversationErrorCopy` + `getCalendarBookingErrorMessage`)
@@ -260,7 +261,7 @@ correction benefiting all icon-only buttons).
 ### Empty states
 
 "No conversations yet." / "No qualification yet. Qualification will appear
-when enough information is available." / "No logistics details yet." — no
+when enough information is available." / "No logistics details yet." ï¿½ no
 debug wording. Logistics labels stay human-readable (Customer Name, Pickup,
 Destination, Vehicle, Cargo, Weight, Dimensions, Required Date, Budget,
 Urgency, Booking Intent).

@@ -57,9 +57,13 @@ const TRIVIAL_MESSAGES = new Set([
 ]);
 
 export interface ProcessTurnOptions {
-  /** Preferred identity for text conversations (Phase 1). */
+  /** Preferred identity for text conversations (Phase 1; the primary API). */
   conversationId?: string;
-  /** Legacy identity for voice/Vapi calls (compatibility, do not remove yet). */
+  /**
+   * Legacy identity for historical voice/call-anchored records
+   * (compatibility only — no voice services remain in Phase 14; the text
+   * path always supplies conversationId).
+   */
   callId?: string;
   /** Optional transport-independent context; explicit options above take precedence. */
   context?: AgentContext;

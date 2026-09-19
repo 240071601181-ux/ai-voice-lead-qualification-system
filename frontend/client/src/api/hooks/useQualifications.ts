@@ -6,8 +6,10 @@
  *
  * Backend coverage (existing Express endpoints only):
  *   GET  /api/v1/qualifications/leads/:leadId  -> useQualificationByLead
- *   GET  /api/v1/qualifications/calls/:callId  -> useQualificationByCall
  *   POST /api/v1/qualifications                -> useCreateQualificationMutation
+ *
+ * (Phase 14: GET /api/v1/qualifications/calls/:callId retired with the
+ * Calls UI; call-anchored rows remain readable by-id and by re-run.)
  *
  * There is NO GET-all and NO GET-by-qualification-id endpoint, so there is
  * deliberately no list query and no by-id query here. The /qualifications
@@ -18,7 +20,6 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { ApiError } from "../errors";
 import {
   createQualification,
-  getQualificationByCall,
   getQualificationById,
   getQualificationByLead,
   listQualifications,
@@ -94,17 +95,6 @@ export function useQualificationByLead(leadId: string | undefined) {
   });
 }
 
-/** Qualification attached to a backend call id. Enabled only when present. */
-export function useQualificationByCall(callId: string | undefined) {
-  return useQuery({
-    queryKey: qualificationKeys.byCall(callId ?? ""),
-    queryFn: () => getQualificationByCall(callId as string),
-    enabled: !!callId,
-    retry: shouldRetry,
-    staleTime: 30_000,
-  });
-}
-
 /**
  * Run (or re-run) qualification for a call. Sends ONLY `{ callId }` — the
  * single field the backend accepts. Scoring stays backend-side; the returned
@@ -152,21 +142,14 @@ export function useQualificationDetail(
         if (!(error instanceof ApiError) || error.kind !== "not-found") throw error;
       }
       // Lead-first: associated lead when known, else the raw route id.
+      // (Phase 14: the raw-id-as-call-id fallback is retired with the
+      // Calls UI — call-anchored rows resolve via the by-id lookup above.)
       const leadCandidates = [leadId, leadId ? undefined : routeId].filter(
         (v): v is string => !!v
       );
       for (const candidate of leadCandidates) {
         try {
           return { qualification: await getQualificationByLead(candidate), via: "lead" };
-        } catch (error) {
-          if (!(error instanceof ApiError) || error.kind !== "not-found") throw error;
-        }
-      }
-      // Then the raw route id as a call id (mock fixtures carry no call id,
-      // so this only fires for ids without a known lead association).
-      if (!leadId) {
-        try {
-          return { qualification: await getQualificationByCall(routeId), via: "call" };
         } catch (error) {
           if (!(error instanceof ApiError) || error.kind !== "not-found") throw error;
         }

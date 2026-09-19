@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from 'express';
 import {
   countQualifications,
   findLatestQualificationByLeadId,
-  findQualificationByCallId,
   findQualificationById,
   listQualifications,
 } from '../repositories/qualificationRepository';
@@ -32,16 +31,6 @@ export const createQualification = async (req: Request, res: Response, next: Nex
       });
     }
     return res.status(201).json({ success: true, data: qualification });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const getQualificationByCall = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const qualification = await findQualificationByCallId(req.params.callId);
-    if (!qualification) return res.status(404).json({ success: false, error: { message: 'Qualification not found', code: 404 } });
-    return res.json({ success: true, data: qualification });
   } catch (err) {
     next(err);
   }

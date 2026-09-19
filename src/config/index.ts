@@ -223,26 +223,11 @@ export const getFollowupConfig = (): FollowupConfig => ({
 
 export const isFollowupEnabled = (): boolean => getFollowupConfig().enabled;
 
-export interface VapiConfig {
-  apiKey: string;
-  baseUrl: string;
-  assistantId: string;
-  phoneNumberId: string;
-  timeoutMs: number;
-}
-
-export const getVapiConfig = (): VapiConfig => ({
-  apiKey: process.env.VAPI_API_KEY || '',
-  baseUrl: (process.env.VAPI_BASE_URL || 'https://api.vapi.ai').replace(/\/+$/, ''),
-  assistantId: process.env.VAPI_ASSISTANT_ID || '',
-  phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',
-  timeoutMs: numberOr(process.env.VAPI_TIMEOUT_MS, 15000)
-});
-
-export const isVapiCallConfigured = (): boolean => {
-  const cfg = getVapiConfig();
-  return cfg.apiKey.length > 0 && cfg.assistantId.length > 0 && cfg.phoneNumberId.length > 0;
-};
+/**
+ * Phase 14 — Vapi/outbound-voice configuration retired with the voice
+ * services. VAPI_* environment variables are no longer read. The
+ * historical `calls` rows remain queryable via callRepository.findCallById.
+ */
 
 export interface AuthConfig {
   /** Server-only HMAC secret for short-lived access tokens. Never sent out. */

@@ -1,13 +1,48 @@
 # Architecture Overview
 
+> **Phase 14 — text-first architecture (voice retired).** Text conversations
+> are the primary AI interaction model. The legacy voice/Vapi system
+> (outbound calls, webhooks, custom-LLM callbacks, `endCall` tool,
+> `VAPI_*` config) is retired: its routes, controllers, services, and UI
+> are removed. What remains:
+>
+> ```
+> Lead
+>  ↓
+> Conversation
+>  ↓
+> Messages
+>  ↓
+> AgentOrchestrator (processTurn: conversationId, context, channel, messages)
+>  ├── Conversation State (conversation_states, legacy call-anchored reads kept)
+>  ├── RAG (knowledge base)
+>  ├── LLM (Ollama/OpenAI; mock is tests-only)
+>  └── Tools (explicit allowlist: updateConversationState,
+>      updateLeadInformation, getConversationState,
+>      checkCalendarAvailability, scheduleMeeting)
+>  ↓
+> Qualification (deterministic scorer, unchanged)
+>  ↓
+> Integrations (CRM / n8n / WhatsApp / Calendar / Follow-ups)
+> ```
+>
+> **Retained legacy database tables (read-only compatibility, NOT dropped):**
+> `calls` (queryable via `callRepository.findCallById` for legacy
+> call-anchored enrichment) and the old `conversation_state` table
+> (legacy call-anchored state reads). No voice write path remains, no
+> production data was destroyed, and no destructive reset was run.
+>
+> The sections below are the original design record; voice-specific rows are
+> marked **[RETIRED Phase 14]** where they no longer apply.
+
 ## 1. System Architecture
 
 | Component | Responsibility | Input | Output | Communication Partner | Sync/Async |
 |-----------|----------------|-------|--------|-----------------------|------------|
 | **Lead Source** | Ingest leads from web forms, email, or partner APIs | Raw lead payload (JSON) | Normalised lead record | Backend API (`POST /leads`) | Async |
-| **Telephony (Vapi)** | Initiates outbound calls, streams audio | Lead phone number, call script ID | Audio stream (bidirectional) | Voice Engine (STT/TTS) | Real‑time |
-| **Speech‑to‑Text (STT)** | Converts caller speech to text | Audio chunks | Transcribed text (UTF‑8) | LLM (conversation) | Real‑time |
-| **Text‑to‑Speech (TTS)** | Synthesises LLM response to audio | Text response | Audio chunks | Vapi (playback) | Real‑time |
+| **Telephony (Vapi)** [RETIRED Phase 14] | Formerly initiated outbound calls | – | – | Removed | – |
+| **Speech‑to‑Text (STT)** [RETIRED Phase 14] | Formerly transcribed caller speech | – | – | Removed | – |
+| **Text‑to‑Speech (TTS)** [RETIRED Phase 14] | Formerly synthesised audio replies | – | – | Removed | – |
 | **LLM (e.g., OpenAI/Anthropic)** | Generates conversational replies, decides when to call tools, maintains dialogue flow | Transcribed text, conversation state, system prompt | Assistant reply (text) | RAG (optional), Tools (function calls) | Real‑time |
 | **RAG / Knowledge Base** | Provides domain‑specific facts (service catalog, pricing, policies) | Retrieval query, document IDs | Relevant passages | LLM (as context) | Real‑time (cached) |
 | **Conversation State** | Stores extracted slot values during a call (name, origin, destination, cargo, budget…) | LLM‑extracted entities, tool results | Updated state object | LLM (next turn) | Real‑time (persisted/recoverable) |
@@ -26,11 +61,12 @@
 - **Asynchronous side‑effects** – CRM updates, calendar scheduling, and follow‑ups are decoupled via webhooks/n8n to avoid blocking the voice conversation.
 - **RAG** – kept out of the hot path; invoked only when the LLM explicitly requests external knowledge.
 
-## 2. Real‑time Conversation Path
+## 2. Real‑time Conversation Path (text-first, Phase 14)
 
 ```
-Customer → Vapi (outbound call) → STT → LLM (with system prompt & current state) →
-   [optional] RAG/tool (async, result cached) → TTS → Vapi → Customer
+Customer → Text chat (web) → AgentOrchestrator → LLM (system prompt + state) →
+   [optional] RAG/tool (explicit allowlist) → Assistant reply → Customer
+   → State persisted → Qualification → CRM/n8n/WhatsApp/Calendar/Follow-ups
 ```
 
 **Critical fast operations** (must stay < 600 ms):
@@ -183,7 +219,7 @@ future scheduler → POST /api/v1/followups/execute-due (INTERNAL/admin only) �
 | Table | Primary Key | Important Columns | Relationships |
 |-------|--------------|-------------------|----------------|
 | **leads** | `id` (UUID) | `source`, `name`, `phone`, `email`, `status` (enum), `created_at` | 1‑many `calls`, 1‑many `qualifications` |
-| **calls** | `id` (UUID) | `lead_id`, `vapi_call_id`, `started_at`, `ended_at`, `duration_ms`, `outcome` (enum) | many‑to‑1 `leads` |
+| **calls** (RETAINED read-only, Phase 14) | `id` (UUID) | `lead_id`, `vapi_call_id`, `started_at`, `ended_at`, `duration_seconds`, `status` | many‑to‑1 `leads` |
 | **transcripts** | `id` (UUID) | `call_id`, `content` (text), `language` | 1‑1 `calls` |
 | **qualifications** | `id` (UUID) | `lead_id`, `call_id`, `score` (int), `tier` (enum), `details` (json) | many‑to‑1 `leads` |
 | **meetings** | `id` (UUID) | `lead_id`, `calendar_event_id`, `meet_url`, `scheduled_for`, `status` | many‑to‑1 `leads` |
@@ -198,7 +234,7 @@ All tables use `uuid_generate_v4()` for IDs, timestamps with timezone, and appro
 | `POST` | `/api/leads` | Create a new lead | API‑Key / JWT | `{source, name, phone, email, ...}` | `{id, status}` |
 | `GET` | `/api/leads/:id` | Retrieve lead details | API‑Key / JWT | – | Lead object + latest qualification |
 | `PATCH` | `/api/leads/:id` | Update mutable fields (e.g., status) | API‑Key / JWT | `{status?, notes?}` | Updated lead |
-| `POST` | `/api/webhooks/vapi` | Receive Vapi events (call_started, call_ended, transcription) | HMAC signature verification | Vapi payload | `200 OK` |
+| `POST` | `/api/webhooks/vapi` [RETIRED Phase 14] | Formerly received Vapi events | – | – | Gone (`404`) |
 | `POST` | `/api/qualification` | Trigger manual qualification (optional) | API‑Key / JWT | `{leadId, callId}` | Qualification result |
 | `POST` | `/api/meetings` | Request meeting creation (internal use) | Service‑to‑service token | `{leadId, preferredTime}` | Meeting record + Meet URL |
 | `POST` | `/api/whatsapp` | Send WhatsApp message (internal) | Service token | `{to, templateId, params}` | Message SID |
@@ -210,15 +246,16 @@ All endpoints return JSON, use standard HTTP status codes, and are versioned und
 | Event | Source | Payload (summary) | Consumer | Idempotency |
 |-------|--------|-------------------|----------|-------------|
 | `lead_created` | Front‑end / partner API | `{leadId, source}` | n8n (optional) | `leadId` as key |
-| `call_initiated` | Backend (Vapi request) | `{callId, leadId, timestamp}` | Vapi (telephony) | `callId` |
-| `call_answered` | Vapi | `{callId, answeredAt}` | Backend (store) | `callId` |
-| `call_ended` | Vapi webhook | `{callId, endedAt, durationMs, outcome}` | Backend → qualification → CRM | `callId` |
+| `call_initiated` [RETIRED Phase 14] | Formerly backend (Vapi request) | – | Removed | – |
+| `call_answered` [RETIRED Phase 14] | Formerly Vapi | – | Removed | – |
+| `call_ended` [RETIRED Phase 14] | Formerly Vapi webhook | – | Removed | – |
 | `qualification_completed` | Backend | `{leadId, tier, score, details}` | CRM, n8n, UI | `leadId` |
 | `meeting_scheduled` | Backend (Google API) | `{meetingId, leadId, meetUrl, startTime}` | WhatsApp, CRM | `meetingId` |
 | `whatsapp_sent` | Twilio | `{messageSid, leadId, status}` | Backend (log) | `messageSid` |
 
 **Reliability measures**:
-- All webhook endpoints validate HMAC signatures (Vapi, Twilio) or JWT.
+- All webhook endpoints validate HMAC signatures (Twilio) or JWT. (Phase 14:
+  Vapi webhook verification retired with the Vapi routes.)
 - Events are stored in an `activities` table for replay.
 - Consumers must be idempotent using the unique IDs above.
 
@@ -262,8 +299,8 @@ The engine is transparent; the score breakdown is stored in `qualifications.deta
 
 | Failure Point | Retry Strategy | Fallback | User Impact |
 |---------------|----------------|----------|-------------|
-| Vapi call fails to start | 3× exponential back‑off (5s, 15s, 45s) | Mark lead as **CALL_FAILED**, schedule human callback | Lead may receive later callback |
-| STT error | Retry up to 2 times, then ask caller to repeat | Continue conversation with clarification prompt | Minor delay |
+| Vapi call fails to start [RETIRED Phase 14 — no voice initiation remains] | – | – | – |
+| STT error [RETIRED Phase 14 — no speech pipeline remains] | – | – | – |
 | LLM timeout | Return a generic fallback phrase (e.g., "Let me check that for you.") and queue async processing | No immediate answer, but conversation stays alive |
 | RAG unavailable | Skip knowledge retrieval, inform user "I don't have that info right now" | Continue without external data |
 | CRM API error | Queue update in n8n with retry policy (5 attempts) | Lead data eventually syncs | No visible impact during call |

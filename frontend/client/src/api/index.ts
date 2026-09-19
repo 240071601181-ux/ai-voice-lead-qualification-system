@@ -12,7 +12,7 @@
 export { frontendEnv, isMockDataEnabled } from "./env";
 export { httpClient, request } from "./httpClient";
 export type { HttpMethod, RequestOptions } from "./httpClient";
-export { ApiError, errorKindForStatus, getCalendarBookingErrorMessage, getStartCallErrorMessage, getUserMessage, CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE, TELEPHONY_NOT_CONFIGURED_MESSAGE } from "./errors";
+export { ApiError, errorKindForStatus, getCalendarBookingErrorMessage, getUserMessage, CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE } from "./errors";
 export type { ApiErrorKind } from "./errors";
 export { queryClient } from "./queryClient";
 export { errorState, fromQuery, idleState, loadingState, successState } from "./asyncState";
@@ -20,12 +20,10 @@ export type { AsyncState, AsyncStatus } from "./asyncState";
 export type * from "./types";
 
 export * as leadsApi from "./services/leads";
-export * as callsApi from "./services/calls";
 export * as conversationsApi from "./services/conversations";
 export * as sessionApi from "./session";
 export * as agentApi from "./services/agent";
 export * as leadsHooks from "./hooks/useLeads";
-export * as callsHooks from "./hooks/useCalls";
 export * as conversationsHooks from "./hooks/useConversations";
 export * as qualificationsHooks from "./hooks/useQualifications";
 export * as followupsHooks from "./hooks/useFollowups";

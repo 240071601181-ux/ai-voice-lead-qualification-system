@@ -6,8 +6,10 @@
  *   POST /api/v1/qualifications
  *   GET  /api/v1/qualifications                 (page/limit, newest first)
  *   GET  /api/v1/qualifications/:id
- *   GET  /api/v1/qualifications/calls/:callId
  *   GET  /api/v1/qualifications/leads/:leadId
+ *
+ * (Phase 14: GET /api/v1/qualifications/calls/:callId retired with the
+ * Calls UI; the repository read stays for legacy enrichment.)
  */
 
 import { httpClient } from "../httpClient";
@@ -33,12 +35,6 @@ export function listQualifications(page = 1, limit = 20): Promise<QualificationL
 export function getQualificationById(id: string): Promise<Qualification> {
   return httpClient.get<Qualification>(
     `/api/v1/qualifications/${encodeURIComponent(id)}`
-  );
-}
-
-export function getQualificationByCall(callId: string): Promise<Qualification> {
-  return httpClient.get<Qualification>(
-    `/api/v1/qualifications/calls/${encodeURIComponent(callId)}`
   );
 }
 

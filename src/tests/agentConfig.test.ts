@@ -84,7 +84,9 @@ describe('Agent configuration API', () => {
     expect(res.body.data.metrics).toBeNull();
     expect(res.body.data.metricsReason).toEqual(expect.any(String));
     expect(res.body.data.liveSession).toBe(false);
-    expect(typeof res.body.data.telephonyConfigured).toBe('boolean');
+    // Phase 14: telephonyConfigured retired with Vapi — voice is no longer
+    // part of the agent health contract.
+    expect(res.body.data.telephonyConfigured).toBeUndefined();
     const raw = JSON.stringify(res.body.data);
     expect(raw).not.toContain('93.2');
     expect(raw).not.toContain('72.4');

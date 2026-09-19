@@ -18,12 +18,6 @@ import {
   setAgentPaused,
   updateAgentConfig
 } from '../services/agentConfigService';
-import { getVapiConfig } from '../config';
-
-const isTelephonyConfigured = (): boolean => {
-  const cfg = getVapiConfig();
-  return Boolean(cfg.apiKey && cfg.assistantId && cfg.phoneNumberId);
-};
 
 export const getConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -61,7 +55,7 @@ export const resumeAgent = async (req: Request, res: Response, next: NextFunctio
  * Honest agent health: real status flags only. No call-connection rate,
  * qualification rate, quality score, or latency telemetry is collected by
  * this backend, so metrics are null with an explicit reason instead of
- * demo values.
+ * demo values. (Phase 14: telephonyConfigured retired with Vapi.)
  */
 export const getHealth = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -73,7 +67,6 @@ export const getHealth = async (req: Request, res: Response, next: NextFunction)
         paused: config.paused,
         name: config.name,
         version: config.version,
-        telephonyConfigured: isTelephonyConfigured(),
         liveSession: false,
         metrics: null,
         metricsReason: 'No aggregate telemetry is collected. Connect a metrics provider to enable agent health metrics.'

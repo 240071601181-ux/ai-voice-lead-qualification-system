@@ -3,11 +3,10 @@ import { ConversationStateRecord } from '../models/Conversation';
 /**
  * Phase 4 — text-safe conversation state extraction + deterministic merge.
  *
- * The legacy voice path updates call-anchored state through Vapi tool calls
- * (see agent/tools.ts + vapiToolController.ts) and is intentionally untouched.
- * This module is the text-only counterpart: it derives a validated partial
- * update from a user message and merges it into `conversation_states`
- * (keyed by conversationId) without ever executing SQL itself.
+ * This module derives a validated partial update from a user message and
+ * merges it into `conversation_states` (keyed by conversationId) without
+ * ever executing SQL itself. (Phase 14: the legacy voice tool path is
+ * retired; this text path is the primary state writer.)
  *
  * Safety rules:
  * - Only whitelisted slot columns are accepted; everything else is dropped.
