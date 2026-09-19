@@ -174,7 +174,11 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    // Fixed local-development frontend port. strictPort fails fast with a
+    // clear error instead of silently switching when 3000 is occupied.
     host: true,
+    port: 3000,
+    strictPort: true,
     allowedHosts: [
       ".manuspre.computer",
       ".manus.computer",

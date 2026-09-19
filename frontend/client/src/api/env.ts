@@ -11,7 +11,7 @@
  */
 
 export interface FrontendEnv {
-  /** Base URL of the Express backend, e.g. http://localhost:3000 */
+  /** Base URL of the Express backend, e.g. http://localhost:4000 */
   apiBaseUrl: string;
   /** When true, pages keep using local mock services (default). */
   useMockData: boolean;
@@ -21,7 +21,7 @@ function readApiBaseUrl(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
   const value = (raw ?? "").trim().replace(/\/+$/, "");
   // Fall back to same-origin so relative behaviour still works if unset,
-  // but local dev should set VITE_API_BASE_URL=http://localhost:3000.
+  // but local dev should set VITE_API_BASE_URL=http://localhost:4000.
   return value.length > 0 ? value : "";
 }
 

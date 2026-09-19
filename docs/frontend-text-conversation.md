@@ -137,16 +137,82 @@ Final `/conversations/:id` structure:
 
 Remaining known limitations:
 
-- Live browser QA against a running backend/DB was not executed in this
-  environment; flow correctness was verified statically (send appends the
-  persisted user+assistant pair in backend order with no optimistic fakes;
-  failures append nothing; Complete/Abandon refresh detail so the composer
-  disables while history stays; availability fires only from the explicit
-  check and Book stays disabled until `available === true`) plus unit/build
-  checks. Re-verify the Hi â†’ Chennaiâ†’Bengaluru â†’ 32 ft â†’ â‚¹25000 script, the
-  401/404/409/429/500 states, Complete/Abandon transitions, and explicit-time
-  availability â†’ booking in a live browser before release.
+- Live browser-equivalent QA against the running backend + PostgreSQL was
+  executed in the Phase 12 stabilization pass (see "Conversation Detail UI
+  and Interaction Flow" below); the static-only verification note from the
+  earlier pass no longer applies to the conversation flow.
 - `server/frontend.contract.test.ts` fails pre-existing (missing
   `client/src/pages/Home.tsx`); untouched by this phase.
 - Unrelated working-tree changes (`docs/authentication.md`, `src/app.ts`,
   `src/tests/auth.test.ts`) were already present and left alone.
+
+## Conversation Detail UI and Interaction Flow (Phase 12 stabilization)
+
+Live API-level QA was executed against the running backend
+(`http://localhost:4000`) + PostgreSQL in this phase (register ? lead ?
+conversation ? send "Hi, I need a truck from Chennai to Bengaluru." ? real
+LLM reply ? state ? Score now ? availability ? book ? complete ? refresh;
+QA rows removed afterwards).
+
+### Responsive layout
+
+- Desktop: CSS grid `minmax(0,1fr) minmax(300px,360px)` — conversation +
+  messages left; Status / Lead / Qualification / Logistics / Meeting stacked
+  right (`ConversationDetailPage.tsx` + `conversation-layout` in
+  `index.css`).
+- 1100px and below: single column; side panels become an auto-fit grid
+  (`minmax(min(260px,100%),1fr)`) so cards keep normal width instead of
+  squeezing. 760px and below: single column, tighter label columns.
+- `min-width: 0` on every grid/flex child; `overflow-wrap: anywhere` on
+  bubbles, rows, and notes — no horizontal page overflow at 768–1920px.
+- Panel action buttons use flexible height (`min-height: 35px`, wrapping
+  labels) so "Check availability" never clips inside narrow cards.
+- The chat box keeps a fixed `clamp(480px, 68vh, 720px)` height with
+  scrolling contained in the message area; the composer stays visible and
+  the chat never pushes side panels off-screen. A previous mount-once
+  min-height spacer on the last message (stale on resize, ~500px dead
+  space) was removed; the view scrolls to the newest message on
+  history/loading changes.
+
+### Button to API mapping (all real, React Query + services only)
+
+| Button | Hook, service, endpoint | UI update |
+| ------ | ----------------------- | --------- |
+| New Conversation, Create and open | `useCreateConversationMutation` to `POST /api/v1/conversations {leadId, channel}` | invalidates lists, navigates to `/:id` |
+| Open conversation (row click) | `useConversationQuery` to `GET /:id` | detail render; 404 shows "Conversation not found." |
+| Send (composer / suggested prompt) | `useSendConversationMessageMutation` to `POST /:id/messages {content}` (60s timeout) | appends persisted pair, invalidates detail/state/lists, seeds qualification; failure keeps text for retry |
+| Retry (detail / messages / panels) | query `refetch()` | re-fires the same endpoint |
+| Score now | `useQualifyConversationMutation` to `POST /:id/qualification` | "Scoring…", duplicate clicks blocked, seeds qualification cache; 422 shows the backend reason (e.g. no state yet) |
+| Complete / Abandon | `useCompleteConversationMutation` / `useAbandonConversationMutation` to `POST /:id/complete` / `POST /:id/abandon` | confirm dialog with pending labels, invalidates detail + lists; composer disables off status |
+| Check availability | `useConversationAvailabilityQuery` to `GET /:id/calendar/availability?start&end&timezone` | "Checking…", result line; errors show truthful copy + Retry |
+| Book meeting | `useBookConversationMeetingMutation` to `POST /:id/calendar/book` | "Booking…", booking card (status, start/end, Meet link when returned); never auto-books |
+| Open lead | router link | `GET /leads/:id` page |
+
+### Loading states
+
+Score now to "Scoring…"; Check availability to "Checking…"; Book meeting to
+"Booking…"; Create to "Creating…"; Complete/Abandon confirms to
+"Completing…"/"Abandoning…"; send to "Assistant is typing…" plus a disabled
+composer. Triggers stay disabled while their mutation is pending.
+
+### Error handling (`conversationErrorCopy` + `getCalendarBookingErrorMessage`)
+
+- 401: "Your session has expired. Please sign in again." (plus Sign-in link)
+- 403: "You don't have access to this conversation."
+- 404: "Conversation not found."
+- 409: "That action is not available for this conversation."
+- 429: "Too many requests. Please wait and try again."
+- Calendar 503: "Calendar booking is not configured. Connect Google
+  Calendar to create a meeting."; calendar 403 (tier gate): tier
+  ineligibility note. No raw transport errors, stack traces, or SQL.
+
+### Meeting flow
+
+Enter start/end (`datetime-local`) + timezone; inline validation (both
+required, end after start, start in the future); Check availability;
+result; Book meeting enabled only for the checked slot (editing any field
+invalidates the previous check, so booking can never use a stale slot);
+booking card with status/times/Meet URL (explicit "No meeting link was
+returned" when absent). Abandoned conversations disable the panel with a
+reason; sending to a completed conversation is rejected (409) with the
+disabled-composer note.

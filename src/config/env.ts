@@ -119,6 +119,6 @@ export const getEnvDiagnostics = (): EnvDiagnostics => {
     inheritedAuthJwtPresent: inheritedPresent,
     inheritedAuthJwtWasBlank: Boolean(inheritedBlank),
     nodeEnv: process.env.NODE_ENV || '(unset)',
-    port: process.env.PORT || '(unset, default 3000)',
+    port: process.env.PORT || '(unset, default 4000)',
   };
 };

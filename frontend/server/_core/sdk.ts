@@ -28,12 +28,21 @@ const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
 
+let oauthMissingWarned = false;
+
 class OAuthService {
   constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
+    if (!ENV.oAuthServerUrl && !oauthMissingWarned) {
+      oauthMissingWarned = true;
+      // OAUTH_SERVER_URL belongs to the legacy Manus-hosted preview login
+      // (/api/oauth/callback). It is NOT required for local development:
+      // local auth uses the Express backend (VITE_API_BASE_URL) with
+      // first-party JWT + refresh cookie. Warn once instead of erroring so
+      // local startup logs stay clean.
+      console.warn(
+        "[OAuth] OAUTH_SERVER_URL is not configured. Manus preview login " +
+          "(/api/oauth/callback) is disabled; local JWT auth is unaffected. " +
+          "Set OAUTH_SERVER_URL only if you need the hosted preview login."
       );
     }
   }

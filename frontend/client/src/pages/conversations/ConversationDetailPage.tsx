@@ -38,7 +38,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-function QualificationPanel({ conversationId }: { conversationId: string }) {
+export function QualificationPanel({ conversationId }: { conversationId: string }) {
   const qualification = useConversationQualificationQuery(conversationId);
   const qualify = useQualifyConversationMutation(conversationId);
   const notFound =
@@ -145,6 +145,76 @@ function LogisticsStatePanel({ conversationId }: { conversationId: string }) {
   );
 }
 
+export function ConversationStatusPanel({
+  conversationId,
+  status,
+}: {
+  conversationId: string;
+  status: string | undefined;
+}) {
+  const complete = useCompleteConversationMutation(conversationId);
+  const abandon = useAbandonConversationMutation(conversationId);
+  const actionsDisabled = status !== "active";
+  return (
+    <Card className="panel-card" data-testid="status-panel">
+      <div className="panel-heading"><span className="panel-title">Status</span></div>
+      <dl className="kv-list">
+        <div className="kv-row">
+          <dt>Status</dt>
+          <dd data-testid="status-value">{status ? formatStatusLabel(status) : "…"}</dd>
+        </div>
+      </dl>
+      <div className="panel-actions">
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="secondary" disabled={actionsDisabled || complete.isPending}>
+              Complete
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Complete this conversation?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The conversation closes and the composer disables. History is preserved.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => complete.mutate()} disabled={complete.isPending}>
+                {complete.isPending ? "Completing…" : "Complete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="secondary" disabled={actionsDisabled || abandon.isPending}>
+              Abandon
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Abandon this conversation?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The conversation closes without scoring. History is preserved.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => abandon.mutate()} disabled={abandon.isPending}>
+                {abandon.isPending ? "Abandoning…" : "Abandon"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+      {complete.isError || abandon.isError ? (
+        <p className="panel-error">{conversationErrorCopy(complete.error ?? abandon.error)}</p>
+      ) : null}
+    </Card>
+  );
+}
+
 function ConversationDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -155,8 +225,6 @@ function ConversationDetailPage() {
   const detail = useConversationQuery(id);
   const messages = useConversationMessagesQuery(id, 100);
   const send = useSendConversationMessageMutation(id ?? "");
-  const complete = useCompleteConversationMutation(id ?? "");
-  const abandon = useAbandonConversationMutation(id ?? "");
 
   const conversation = detail.data?.conversation ?? null;
   const lead = detail.data?.lead ?? null;
@@ -289,60 +357,7 @@ function ConversationDetailPage() {
           )}
         </div>
         <aside className="conversation-side">
-          <Card className="panel-card" data-testid="status-panel">
-            <div className="panel-heading"><span className="panel-title">Status</span></div>
-            <dl className="kv-list">
-              <div className="kv-row">
-                <dt>Status</dt>
-                <dd data-testid="status-value">{status ? formatStatusLabel(status) : "…"}</dd>
-              </div>
-            </dl>
-            {conversation ? (
-              <div className="panel-actions">
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="secondary" disabled={status !== "active" || complete.isPending}>
-                      Complete
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Complete this conversation?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        The conversation closes and the composer disables. History is preserved.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => complete.mutate()}>Complete</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="secondary" disabled={status !== "active" || abandon.isPending}>
-                      Abandon
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Abandon this conversation?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        The conversation closes without scoring. History is preserved.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => abandon.mutate()}>Abandon</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            ) : null}
-            {complete.isError || abandon.isError ? (
-              <p className="panel-error">{conversationErrorCopy(complete.error ?? abandon.error)}</p>
-            ) : null}
-          </Card>
+          <ConversationStatusPanel conversationId={id} status={status} />
           <Card className="panel-card" data-testid="lead-panel">
             <div className="panel-heading"><span className="panel-title">Lead</span></div>
             {detail.isPending ? (
@@ -373,7 +388,15 @@ function ConversationDetailPage() {
           </Card>
           <QualificationPanel conversationId={id} />
           <LogisticsStatePanel conversationId={id} />
-          <MeetingPanel conversationId={id} />
+          <MeetingPanel
+            conversationId={id}
+            schedulable={status === "active" || status === "completed"}
+            schedulableReason={
+              status === "abandoned"
+                ? "Meetings cannot be scheduled because this conversation was abandoned."
+                : "Meetings can be scheduled once the conversation loads."
+            }
+          />
         </aside>
       </div>
     </div>

@@ -101,15 +101,21 @@ export function getStartCallErrorMessage(error: unknown): string {
 }
 
 /**
- * Booking-form error message. Detects the backend's specific
- * booking-unconfigured signal (HTTP 503 from the calendar booking or
- * availability endpoints) and shows the truthful message above; every
- * other failure keeps the generic safe mapping. Deliberately distinct
- * from sync-status messaging ("Calendar sync …").
+ * Booking-form error message. Detects the backend's specific calendar
+ * signals and shows truthful copy; every other failure keeps the generic
+ * safe mapping (pinned by server/calendarSync.test.ts — never surface raw
+ * provider text):
+ * - 503 → calendar not configured (backend's own user-facing signal).
+ * - 403 → qualification-tier gate (COLD-tier conversations cannot book;
+ *   the backend persists this as a `tier` skip).
+ * Deliberately distinct from sync-status messaging ("Calendar sync …").
  */
 export function getCalendarBookingErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 503) {
     return CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE;
+  }
+  if (error instanceof ApiError && error.status === 403) {
+    return "This conversation is not eligible for meeting booking yet (qualification tier).";
   }
   return getUserMessage(error);
 }

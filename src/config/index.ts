@@ -8,7 +8,8 @@ const numberOr = (raw: string | undefined, fallback: number): number => {
 };
 
 export const config = {
-  port: process.env.PORT || 3000,
+  // Fixed local-development backend port (from backend .env PORT, default 4000).
+  port: process.env.PORT || 4000,
   host: process.env.HOST || '0.0.0.0',
   // Add other config getters as needed
 };

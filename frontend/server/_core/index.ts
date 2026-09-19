@@ -19,15 +19,6 @@ function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
-    }
-  }
-  throw new Error(`No available port found starting from ${startPort}`);
-}
-
 async function startServer() {
   const app = express();
   const server = createServer(app);
@@ -51,12 +42,18 @@ async function startServer() {
     serveStatic(app);
   }
 
+  // Fixed local-development frontend port. Never silently switch ports:
+  // fail fast with a clear message so `npm run dev:all` health checks stay
+  // deterministic (Backend → 4000, Frontend → 3000).
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
-
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+  if (!(await isPortAvailable(preferredPort))) {
+    throw new Error(
+      `Frontend port ${preferredPort} is already in use. Stop the process using it ` +
+        `(see docs/local-development.md "Port already in use") and restart, ` +
+        `or set PORT to a free port explicitly.`
+    );
   }
+  const port = preferredPort;
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);

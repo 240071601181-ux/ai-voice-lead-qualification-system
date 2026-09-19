@@ -5,6 +5,7 @@
   "main": "dist/app.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
+    "dev:all": "node scripts/dev-all.mjs",
     "build": "tsc",
     "start": "node dist/app.js",
     "test": "jest",

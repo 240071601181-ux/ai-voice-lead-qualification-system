@@ -58,11 +58,12 @@ describe("toVisibleMessages", () => {
 
 describe("conversationErrorCopy", () => {
   it("maps statuses to the required user-safe messages", () => {
-    expect(conversationErrorCopy(new ApiError("unauthorized", "x"))).toBe("You are signed out. Please sign in again.");
-    expect(conversationErrorCopy(new ApiError("conflict", "x"))).toBe("This conversation is no longer active.");
-    expect(conversationErrorCopy(new ApiError("rate-limited", "x"))).toBe("Too many messages. Please wait a moment.");
+    expect(conversationErrorCopy(new ApiError("unauthorized", "x"))).toBe("Your session has expired. Please sign in again.");
+    expect(conversationErrorCopy(new ApiError("forbidden", "x"))).toBe("You don't have access to this conversation.");
+    expect(conversationErrorCopy(new ApiError("not-found", "x"))).toBe("Conversation not found.");
+    expect(conversationErrorCopy(new ApiError("conflict", "x"))).toBe("That action is not available for this conversation.");
+    expect(conversationErrorCopy(new ApiError("rate-limited", "x"))).toBe("Too many requests. Please wait and try again.");
     expect(conversationErrorCopy(new ApiError("server", "x"))).toBe("Something went wrong while generating the response.");
-    expect(conversationErrorCopy(new ApiError("not-found", "x"))).toContain("not found");
     expect(conversationErrorCopy(new Error("boom"))).toBe("Something went wrong. Please try again.");
   });
 });
@@ -120,10 +121,11 @@ describe("phase 12 layout helpers", () => {
   });
 
   it("maps all error kinds to user-friendly copy", () => {
-    expect(conversationErrorCopy(new ApiError("unauthorized", "x"))).toContain("signed out");
-    expect(conversationErrorCopy(new ApiError("not-found", "x"))).toContain("not found");
-    expect(conversationErrorCopy(new ApiError("conflict", "x"))).toBe("This conversation is no longer active.");
-    expect(conversationErrorCopy(new ApiError("rate-limited", "x"))).toContain("Too many");
+    expect(conversationErrorCopy(new ApiError("unauthorized", "x"))).toContain("session has expired");
+    expect(conversationErrorCopy(new ApiError("forbidden", "x"))).toContain("don't have access");
+    expect(conversationErrorCopy(new ApiError("not-found", "x"))).toBe("Conversation not found.");
+    expect(conversationErrorCopy(new ApiError("conflict", "x"))).toBe("That action is not available for this conversation.");
+    expect(conversationErrorCopy(new ApiError("rate-limited", "x"))).toContain("Too many requests");
     expect(conversationErrorCopy(new ApiError("server", "x"))).toContain("Something went wrong");
   });
 

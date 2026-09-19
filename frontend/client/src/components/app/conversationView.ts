@@ -55,15 +55,15 @@ export function conversationErrorCopy(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.kind) {
       case "unauthorized":
-        return "You are signed out. Please sign in again.";
+        return "Your session has expired. Please sign in again.";
       case "forbidden":
-        return "You don't have permission to perform this action.";
+        return "You don't have access to this conversation.";
       case "not-found":
-        return "This conversation was not found. It may have been removed.";
+        return "Conversation not found.";
       case "conflict":
-        return "This conversation is no longer active.";
+        return "That action is not available for this conversation.";
       case "rate-limited":
-        return "Too many messages. Please wait a moment.";
+        return "Too many requests. Please wait and try again.";
       case "bad-request":
         return error.message || "Some details look invalid. Review and retry.";
       case "unavailable":

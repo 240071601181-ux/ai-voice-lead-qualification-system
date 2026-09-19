@@ -27,11 +27,16 @@ app.use(express.json());
 // Minimal development-safe CORS for the local frontend.
 // Allows only the configured frontend origin(s) (no wildcard, so credentials
 // remain possible). No routes, controllers, or logic touched.
-// Dev defaults cover both Vite (5173) and the alternate frontend port (3001).
+// Dev defaults cover the fixed local frontend (3000), the alternate frontend
+// port (3001), and Vite SPA mode (5173).
 // Configure via FRONTEND_ORIGIN (single) and/or FRONTEND_ORIGINS (comma-separated).
 // In production (NODE_ENV=production) only explicitly configured origins are
 // allowed — dev defaults are dropped to keep production safe.
-const DEFAULT_DEV_ORIGINS = ['http://localhost:5173', 'http://localhost:3001'];
+export const DEFAULT_DEV_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5173',
+];
 function resolveAllowedOrigins(): string[] {
   const raw = [process.env.FRONTEND_ORIGIN, process.env.FRONTEND_ORIGINS]
     .filter(Boolean)
@@ -97,12 +102,26 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   res.status(status).json({ success: false, error: { message, code: status } });
 });
 
+// Fixed local-development backend port. The value comes from backend .env
+// (PORT); the compiled default is 4000 so a missing PORT can never fall back
+// to the frontend's port 3000.
+export const DEFAULT_BACKEND_PORT = 4000;
+
+export function resolveBackendPort(): number {
+  const raw = process.env.PORT;
+  const parsed = Number(raw);
+  if (raw !== undefined && raw !== '' && Number.isInteger(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return DEFAULT_BACKEND_PORT;
+}
+
 // Export app for testing or external usage
 export default app;
 
 // Start server only when this file is executed directly
 if (require.main === module) {
-  const PORT = process.env.PORT || 3000;
+  const PORT = resolveBackendPort();
   app.listen(PORT, () => {
     logger.info(`Server listening on port ${PORT}`);
     // Safe runtime environment diagnostics: names/status only, never values.
