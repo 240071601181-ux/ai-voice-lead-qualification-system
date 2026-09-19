@@ -35,11 +35,20 @@ const qual = (overrides: Partial<Qualification> & { id: string }): Qualification
 
 describe("filterConversationRecords", () => {
   const records = [
-    conv({ id: "conv-aaa", lead_id: "lead-1", channel: "web", status: "active" }),
+    conv({
+      id: "conv-aaa",
+      lead_id: "lead-1",
+      channel: "web",
+      status: "active",
+      lead: { id: "lead-1", name: "Rajesh Kumar", phone: "+911234567890", email: "rajesh@example.com", status: "NEW" },
+    }),
     conv({ id: "conv-bbb", lead_id: null, channel: "whatsapp", status: "completed" }),
   ];
 
-  it("matches id, lead, channel, and status case-insensitively", () => {
+  it("matches customer name, email, phone, id, lead, channel, and status", () => {
+    expect(filterConversationRecords(records, "rajesh").map((h) => h.id)).toEqual(["conv-aaa"]);
+    expect(filterConversationRecords(records, "RAJESH@EXAMPLE").map((h) => h.id)).toEqual(["conv-aaa"]);
+    expect(filterConversationRecords(records, "1234567890").map((h) => h.id)).toEqual(["conv-aaa"]);
     expect(filterConversationRecords(records, "conv-aaa").map((h) => h.id)).toEqual(["conv-aaa"]);
     expect(filterConversationRecords(records, "LEAD-1").map((h) => h.id)).toEqual(["conv-aaa"]);
     expect(filterConversationRecords(records, "whatsapp").map((h) => h.id)).toEqual(["conv-bbb"]);
@@ -48,13 +57,19 @@ describe("filterConversationRecords", () => {
     expect(filterConversationRecords(records, "   ")).toEqual([]);
   });
 
+  it("titles hits with the customer name, never a UUID label", () => {
+    const [hit] = filterConversationRecords(records, "rajesh");
+    expect(hit.title).toBe("Rajesh Kumar");
+    expect(hit.title).not.toMatch(/lead-1/i);
+    expect(hit.subtitle).toBe("conv-aaa".slice(0, 8) + "…");
+    expect(hit.meta).toBe("web · active");
+    const [unlinked] = filterConversationRecords(records, "conv-bbb");
+    expect(unlinked.title).toBe("Unnamed Lead");
+  });
+
   it("respects the limit and shapes hits for the palette", () => {
     const many = Array.from({ length: 10 }, (_, i) => conv({ id: `conv-${i}` }));
     expect(filterConversationRecords(many, "conv", 5)).toHaveLength(5);
-    const [hit] = filterConversationRecords(records, "conv-aaa");
-    expect(hit.title).toBe("Lead lead-1");
-    expect(hit.subtitle).toBe("conv-aaa");
-    expect(hit.meta).toBe("web · active");
   });
 });
 

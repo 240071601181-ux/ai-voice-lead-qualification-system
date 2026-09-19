@@ -216,3 +216,51 @@ booking card with status/times/Meet URL (explicit "No meeting link was
 returned" when absent). Abandoned conversations disable the panel with a
 reason; sending to a completed conversation is rejected (409) with the
 disabled-composer note.
+
+## Customer-name display (Phase 13)
+
+### Source
+
+`GET /api/v1/conversations` attaches an additive safe lead summary per row
+(`src/controllers/conversationController.ts`, single batched
+`LeadRepository.findByIds` lookup, no duplicate customer table):
+
+`lead: { id, name, phone, email, status } | null`
+
+No extra lead fields leak. Unlinked conversations and deleted leads resolve
+to `lead: null`. The detail endpoint already returned `{id, name, phone,
+status}`; the list shape now matches it plus `email` for search.
+
+### Display and fallback (`displayCustomerName` in `conversationView.ts`)
+
+1. linked `lead.name`, 2. conversation state `customer_name` (detail header
+only, via the shared state query cache), 3. `"Unnamed Lead"`. UUIDs are
+never the visible name; the conversation id survives only as truncated
+secondary metadata (`title` holds the full id).
+
+- List row (`ConversationsPage.tsx`): customer name primary; sub-line shows
+  the short id; status uses the formatted label (`Active/Completed/
+  Abandoned`); tier signal unchanged (HOT/WARM/COLD).
+- Detail header: same fallback chain; "View Lead" link still uses the raw
+  `lead_id` for `/leads/:id`.
+- Global search (`searchFilter.ts`) matches name/email/phone/id/channel/
+  status and titles hits with the customer name.
+
+### List presentation
+
+Scoped `.conversations-table-card` styles: block name cell with ellipsis
+(`max-width: 270px`, 170px on mobile), mono truncated-id sub-line, styled
+`.pagination-row` matching `.table-footer`, wrapping toolbar; the table
+scrolls horizontally inside the card below ~640px instead of crushing
+columns. Rows are keyboard-operable (Enter/Space) with visible focus and an
+"Open conversation with <name>" label; search, filters, and pagination
+controls have accessible labels. Shared `Button` accepts `aria-label` (tiny
+correction benefiting all icon-only buttons).
+
+### Empty states
+
+"No conversations yet." / "No qualification yet. Qualification will appear
+when enough information is available." / "No logistics details yet." — no
+debug wording. Logistics labels stay human-readable (Customer Name, Pickup,
+Destination, Vehicle, Cargo, Weight, Dimensions, Required Date, Budget,
+Urgency, Booking Intent).

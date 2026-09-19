@@ -667,6 +667,8 @@ export type ConversationStatus = "active" | "completed" | "abandoned";
 export interface Conversation {
   id: string;
   lead_id?: string | null;
+  /** Phase 13 — safe lead summary attached by GET /api/v1/conversations. */
+  lead?: (ConversationLeadSummary & { email?: string | null }) | null;
   channel: ConversationChannel;
   status: ConversationStatus;
   started_at?: string | null;

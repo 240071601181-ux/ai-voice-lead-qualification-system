@@ -154,6 +154,16 @@ input[type="datetime-local"].text-input { min-height:36px; }
 .booking-result b { font-size:12px; overflow-wrap:anywhere; }
 .booking-result small { color:#758498; font-size:10px; }
 .chat-error { margin-top:0; }
+/* Phase 13 — conversation list presentation (scoped; other tables untouched) */
+.conversations-table-card .toolbar { flex-wrap:wrap; }
+.conversations-table-card .table-wrap table { min-width:640px; }
+.conv-customer-cell { min-width:170px; }
+.conv-customer-name { display:block; max-width:270px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.conv-customer-sub { display:block; font-family:'DM Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pagination-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 18px; border-top:1px solid var(--line-soft); color:#68788a; font-size:10px; }
+.pagination-row .btn { height:30px; }
+.conversations-table-card tbody tr:focus-visible { outline:2px solid rgba(0,240,255,.55); outline-offset:-2px; }
+@media (max-width:760px) { .conv-customer-name { max-width:170px; } .pagination-row { padding:12px 14px; } }
 .chat-bubble { overflow-wrap:anywhere; word-break:break-word; }
 .chat-bubble p, .chat-bubble .prose { overflow-wrap:anywhere; word-break:break-word; max-width:100%; }
 .chat-bubble pre { white-space:pre-wrap; word-break:break-word; max-width:100%; overflow-x:auto; }

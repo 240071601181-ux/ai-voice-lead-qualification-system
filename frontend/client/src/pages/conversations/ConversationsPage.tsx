@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { ChevronLeft, ChevronRight, MessageSquarePlus, Search } from "lucide-react";
 import { Button, Card, TierBadge } from "@/components/app/ui";
 import { LeadPicker } from "@/components/app/LeadPicker";
-import { NO_CONVERSATIONS_COPY, conversationErrorCopy } from "@/components/app/conversationView";
+import { NO_CONVERSATIONS_COPY, conversationErrorCopy, displayCustomerName, formatStatusLabel } from "@/components/app/conversationView";
 import { ApiError } from "@/api/errors";
 import { useConversationsQuery, useCreateConversationMutation } from "@/api/hooks/useConversations";
 import { useConversationQualificationQuery } from "@/api/hooks/useConversations";
@@ -62,12 +62,13 @@ function ConversationsPage() {
 
   // The list endpoint supports lead/status/channel filters but no text
   // search, so the search box filters the fetched page client-side.
+  // Customer name is the primary field; id/channel/status stay searchable.
   const rows: Conversation[] = useMemo(() => {
     const q = search.trim().toLowerCase();
     const all = list.data?.conversations ?? [];
     if (!q) return all;
     return all.filter((c) =>
-      `${c.id} ${c.lead_id ?? ""} ${c.channel} ${c.status}`.toLowerCase().includes(q)
+      `${c.id} ${c.lead_id ?? ""} ${c.lead?.name ?? ""} ${c.lead?.email ?? ""} ${c.lead?.phone ?? ""} ${c.channel} ${c.status}`.toLowerCase().includes(q)
     );
   }, [list.data, search]);
 
@@ -100,24 +101,25 @@ function ConversationsPage() {
           </Button>
         </div>
       </div>
-      <Card className="table-card">
+      <Card className="table-card conversations-table-card">
         <div className="toolbar">
           <div className="search-field">
             <Search size={16} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter this page by id, lead, channel…"
+              placeholder="Search by customer, phone, id…"
+              aria-label="Search conversations by customer, phone, or id"
             />
           </div>
           <div className="filter-row">
-            <select value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setPage(1); }}>
+            <select value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setPage(1); }} aria-label="Filter by channel">
               <option value="">All channels</option>
               <option value="web">web</option>
               <option value="whatsapp">whatsapp</option>
               <option value="legacy_voice">legacy_voice</option>
             </select>
-            <select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(1); }}>
+            <select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setPage(1); }} aria-label="Filter by status">
               <option value="">All statuses</option>
               <option value="active">active</option>
               <option value="completed">completed</option>
@@ -144,25 +146,41 @@ function ConversationsPage() {
               ) : rows.length === 0 ? (
                 <tr><td colSpan={5}><div className="empty-state"><b>{NO_CONVERSATIONS_COPY}</b></div></td></tr>
               ) : (
-                rows.map((c) => (
-                  <tr key={c.id} onClick={() => navigate(`/conversations/${c.id}`)}>
-                    <td><b className="table-main">{c.lead_id ? `Lead ${c.lead_id.slice(0, 8)}` : "No lead"}</b><small className="table-sub">{c.id}</small></td>
-                    <td><small className="table-sub">{c.channel}</small></td>
-                    <td><small className="table-sub">{c.status}</small></td>
-                    <td><QualificationCell conversationId={c.id} /></td>
-                    <td><small className="table-sub">{timeAgo(c.updated_at)}</small></td>
-                  </tr>
-                ))
+              rows.map((c) => (
+                <tr
+                  key={c.id}
+                  tabIndex={0}
+                  onClick={() => navigate(`/conversations/${c.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(`/conversations/${c.id}`);
+                    }
+                  }}
+                  aria-label={`Open conversation with ${displayCustomerName(c.lead?.name)}`}
+                >
+                  <td className="conv-customer-cell">
+                    <b className="table-main conv-customer-name" title={displayCustomerName(c.lead?.name)}>
+                      {displayCustomerName(c.lead?.name)}
+                    </b>
+                    <small className="table-sub conv-customer-sub" title={c.id}>{c.id.slice(0, 8)}…</small>
+                  </td>
+                  <td><small className="table-sub">{c.channel}</small></td>
+                  <td><small className="table-sub">{formatStatusLabel(c.status)}</small></td>
+                  <td><QualificationCell conversationId={c.id} /></td>
+                  <td><small className="table-sub">{timeAgo(c.updated_at)}</small></td>
+                </tr>
+              ))
               )}
             </tbody>
           </table>
         </div>
         <div className="pagination-row">
-          <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+          <Button variant="secondary" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
             <ChevronLeft size={15} />
           </Button>
           <span>Page {page} of {totalPages} · {total} total</span>
-          <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+          <Button variant="secondary" aria-label="Next page" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
             <ChevronRight size={15} />
           </Button>
         </div>

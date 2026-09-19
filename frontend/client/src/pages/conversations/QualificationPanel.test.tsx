@@ -92,7 +92,7 @@ describe("QualificationPanel", () => {
       return jsonResponse(404, { success: false, error: { message: "Qualification not found", code: 404 } });
     });
     renderPanel();
-    await waitFor(() => expect(screen.getByText(/not scored yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/no qualification yet/i)).toBeInTheDocument());
 
     const button = screen.getByRole("button", { name: /score now/i });
     await user.click(button);
@@ -115,7 +115,7 @@ describe("QualificationPanel", () => {
       return jsonResponse(404, { success: false, error: { message: "Qualification not found", code: 404 } });
     });
     renderPanel();
-    await waitFor(() => expect(screen.getByText(/not scored yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/no qualification yet/i)).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /score now/i }));
     await waitFor(() =>
       expect(screen.getByText(/no conversation state recorded/i)).toBeInTheDocument()

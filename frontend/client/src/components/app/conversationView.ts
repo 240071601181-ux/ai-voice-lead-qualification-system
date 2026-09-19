@@ -99,9 +99,28 @@ export function shouldShowComposerDisabledNote(status: ConversationStatus | unde
 }
 
 export const QUALIFICATION_EMPTY_COPY =
-  "Not scored yet. Qualification appears automatically once enough details are known.";
+  "No qualification yet. Qualification will appear when enough information is available.";
 
 export const LOGISTICS_EMPTY_COPY = "No structured logistics details yet.";
+
+/** Truthful fallback when a conversation has no linked/named lead. Never a UUID. */
+export const UNNAMED_LEAD_COPY = "Unnamed Lead";
+
+/**
+ * Customer display name with a truthful fallback order:
+ * 1. linked lead name, 2. conversation state's customer_name, 3. "Unnamed Lead".
+ * UUIDs are never used as the visible name.
+ */
+export function displayCustomerName(
+  leadName: string | null | undefined,
+  stateCustomerName?: string | null | undefined
+): string {
+  const lead = typeof leadName === "string" ? leadName.trim() : "";
+  if (lead.length > 0) return lead;
+  const stateName = typeof stateCustomerName === "string" ? stateCustomerName.trim() : "";
+  if (stateName.length > 0) return stateName;
+  return UNNAMED_LEAD_COPY;
+}
 
 /** Tier badge copy. Unknown values render neutrally (never invented). */
 export function tierBadgeCopy(tier: QualificationTier | null | undefined): string {

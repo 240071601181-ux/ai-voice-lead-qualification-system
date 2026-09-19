@@ -23,8 +23,8 @@ export function AmbientShards({ variant = "dashboard" }: { variant?: "dashboard"
   return <div className={`ambient-shards ambient-shards-${variant}`} aria-hidden="true"><AeroShards backgroundColor="#050608" shardColor="#334155" accentColor="#00F0FF" material="chrome" detail="balanced" effect="none" scale={1} spread={1} depth={1} speed={settings.speed} spin={0.8} interaction="repel" density={settings.density} shardSize={settings.shardSize} stretch={1} turbulence={0.8} glow={1} edgeSoftness={2} bloom={settings.bloom} grain={0.025} chromaticAberration={0.004} interactionRadius={1.5} interactionStrength={settings.interactionStrength} rippleIntensity={0.7} holdToGather paused={false} placement={settings.placement} flow={settings.flow} onError={() => undefined} /></div>;
 }
 
-export function Button({ children, variant = "secondary", onClick, icon: Icon, className = "", disabled = false }: { children: React.ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger"; onClick?: () => void; icon?: IconType; className?: string; disabled?: boolean }) {
-  return <button disabled={disabled} onClick={onClick} className={`btn btn-${variant} ${className}`}>{Icon && <Icon size={15} />}{children}</button>;
+export function Button({ children, variant = "secondary", onClick, icon: Icon, className = "", disabled = false, "aria-label": ariaLabel }: { children: React.ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger"; onClick?: () => void; icon?: IconType; className?: string; disabled?: boolean; "aria-label"?: string }) {
+  return <button disabled={disabled} onClick={onClick} aria-label={ariaLabel} className={`btn btn-${variant} ${className}`}>{Icon && <Icon size={15} />}{children}</button>;
 }
 
 export function IconView({ icon: Icon, size = 15 }: { icon: IconType; size?: number }) {

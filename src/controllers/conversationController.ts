@@ -137,7 +137,28 @@ export const listConversationsHandler = async (
       repoListConversations({ ...filter, limit, offset }),
       countConversations(filter),
     ]);
-    return res.json({ success: true, data: { conversations, total, page, limit } });
+    // Phase 13 — safe lead summaries for customer-name display (additive;
+    // list rows previously exposed only lead_id). Single batch lookup, and
+    // only display fields are projected (no duplicate customer table).
+    const leadIds = Array.from(
+      new Set(
+        conversations
+          .map((c) => c.lead_id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      )
+    );
+    const leads = await leadRepository.findByIds(leadIds);
+    const leadById = new Map(leads.map((lead) => [lead.id, lead]));
+    const rows = conversations.map((conversation) => {
+      const lead = conversation.lead_id ? leadById.get(conversation.lead_id) ?? null : null;
+      return {
+        ...conversation,
+        lead: lead
+          ? { id: lead.id, name: lead.name, phone: lead.phone, email: lead.email ?? null, status: lead.status }
+          : null,
+      };
+    });
+    return res.json({ success: true, data: { conversations: rows, total, page, limit } });
   } catch (err) {
     return next(err);
   }

@@ -6,6 +6,7 @@
  * is fabricated, and stale hardcoded entries have no place in these helpers.
  */
 import type { Conversation, Qualification } from "@/api/types";
+import { displayCustomerName } from "@/components/app/conversationView";
 
 export interface ConversationHit {
   id: string;
@@ -21,7 +22,7 @@ export interface QualificationHit {
   meta: string;
 }
 
-/** Client-side match over id/lead/channel/status (backend has no text search). */
+/** Client-side match over customer name/email/phone/id/channel/status (backend has no text search). */
 export function filterConversationRecords(
   records: Conversation[],
   query: string,
@@ -31,13 +32,13 @@ export function filterConversationRecords(
   if (!q) return [];
   return records
     .filter((c) =>
-      `${c.id} ${c.lead_id ?? ""} ${c.channel} ${c.status}`.toLowerCase().includes(q)
+      `${c.id} ${c.lead_id ?? ""} ${c.lead?.name ?? ""} ${c.lead?.email ?? ""} ${c.lead?.phone ?? ""} ${c.channel} ${c.status}`.toLowerCase().includes(q)
     )
     .slice(0, limit)
     .map((c) => ({
       id: c.id,
-      title: c.lead_id ? `Lead ${c.lead_id.slice(0, 8)}` : "No lead",
-      subtitle: c.id,
+      title: displayCustomerName(c.lead?.name),
+      subtitle: `${c.id.slice(0, 8)}…`,
       meta: [c.channel, c.status].filter(Boolean).join(" · "),
     }));
 }

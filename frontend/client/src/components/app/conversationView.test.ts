@@ -12,6 +12,7 @@ import {
   NO_CONVERSATIONS_COPY,
   QUALIFICATION_EMPTY_COPY,
   conversationErrorCopy,
+  displayCustomerName,
   formatMessageTime,
   formatStatusLabel,
   isComposerDisabled,
@@ -130,8 +131,26 @@ describe("phase 12 layout helpers", () => {
   });
 
   it("uses exact empty-state copy without inventing scores", () => {
-    expect(QUALIFICATION_EMPTY_COPY).toContain("Not scored yet");
+    expect(QUALIFICATION_EMPTY_COPY).toContain("No qualification yet");
     expect(LOGISTICS_EMPTY_COPY).toBe("No structured logistics details yet.");
+  });
+});
+
+describe("displayCustomerName", () => {
+  it("prefers the linked lead name", () => {
+    expect(displayCustomerName("Rajesh Kumar", "State Name")).toBe("Rajesh Kumar");
+  });
+
+  it("falls back to the conversation state's customer_name", () => {
+    expect(displayCustomerName(null, "State Name")).toBe("State Name");
+    expect(displayCustomerName("  ", "State Name")).toBe("State Name");
+  });
+
+  it("falls back to Unnamed Lead, never a UUID", () => {
+    expect(displayCustomerName(null, null)).toBe("Unnamed Lead");
+    expect(displayCustomerName(undefined, undefined)).toBe("Unnamed Lead");
+    expect(displayCustomerName("", "   ")).toBe("Unnamed Lead");
+    expect(displayCustomerName(null, null)).not.toMatch(/[0-9a-f]{8}/);
   });
 });
 

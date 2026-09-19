@@ -19,6 +19,17 @@ export class LeadRepository {
     return result.rows[0] || null;
   }
 
+  /**
+   * Phase 13 — batch lookup for the conversation list's lead summaries.
+   * Single query (no N+1); the controller projects only safe display fields.
+   */
+  async findByIds(ids: string[]): Promise<Lead[]> {
+    const unique = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.length > 0)));
+    if (unique.length === 0) return [];
+    const result = await pool.query('SELECT * FROM leads WHERE id = ANY($1)', [unique]);
+    return result.rows;
+  }
+
   /** Escape LIKE wildcards so search terms match literally. */
   private escapeLike(term: string): string {
     return term.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');

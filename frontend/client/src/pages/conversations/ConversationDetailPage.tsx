@@ -8,6 +8,7 @@ import {
   LOGISTICS_EMPTY_COPY,
   QUALIFICATION_EMPTY_COPY,
   conversationErrorCopy,
+  displayCustomerName,
   formatMessageTime,
   formatStatusLabel,
   isComposerDisabled,
@@ -224,11 +225,15 @@ function ConversationDetailPage() {
 
   const detail = useConversationQuery(id);
   const messages = useConversationMessagesQuery(id, 100);
+  // Shared cache with LogisticsStatePanel: supplies the customer_name
+  // fallback for the header without an extra endpoint.
+  const headerState = useConversationStateQuery(id);
   const send = useSendConversationMessageMutation(id ?? "");
 
   const conversation = detail.data?.conversation ?? null;
   const lead = detail.data?.lead ?? null;
   const status = conversation?.status;
+  const customerName = displayCustomerName(lead?.name, headerState.data?.customer_name);
   const composerDisabled = isComposerDisabled(status) || send.isPending;
   const messageCount = detail.data?.messageCount ?? messages.data?.messages?.length ?? 0;
   const latestActivity = conversation?.updated_at ?? conversation?.created_at ?? null;
@@ -270,7 +275,7 @@ function ConversationDetailPage() {
         <div className="conversation-header-main">
           <p className="section-kicker">TEXT CONVERSATION</p>
           <h2 className="conversation-title" data-testid="conversation-title">
-            {detail.isPending ? "Loading conversation…" : (lead?.name ?? "Conversation")}
+            {detail.isPending ? "Loading conversation…" : customerName}
           </h2>
           <div className="conversation-meta">
             {conversation ? (
