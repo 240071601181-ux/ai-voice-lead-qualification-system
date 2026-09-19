@@ -587,6 +587,28 @@ export interface AgentHealth {
   metricsReason: string;
 }
 
+/** Real aggregate agent-health metrics (GET /api/v1/agent/health-metrics). */
+export interface AgentHealthMetrics {
+  textConversations: {
+    total: number;
+    active: number;
+    completed: number;
+    abandoned: number;
+  };
+  qualification: {
+    qualifiedConversations: number;
+    totalConversations: number;
+    ratePercent: number | null;
+  };
+  responsiveness: {
+    avgFirstResponseSec: number | null;
+    conversationsMeasured: number;
+  };
+  /** Always null: no deterministic quality metric exists. */
+  quality: null;
+  qualityReason: string;
+}
+
 // ---------------------------------------------------------------------------
 // Conversations  (backend: src/models/Conversation.ts +
 // src/controllers/conversationController.ts +

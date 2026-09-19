@@ -34,6 +34,14 @@
 >
 > The sections below are the original design record; voice-specific rows are
 > marked **[RETIRED Phase 14]** where they no longer apply.
+>
+> **Phase 15 — core vs optional.** The product core runs without n8n
+> (`N8N_ENABLED=false` default): Conversation, Messages, State, RAG, LLM,
+> Tools, Qualification, CRM, WhatsApp, Calendar, Follow-ups. n8n is an
+> OPTIONAL external-automation fan-out (fire-and-forget events; see
+> `docs/n8n-optional.md`). Agent health reports real database aggregates
+> (`GET /api/v1/agent/health-metrics`; see `docs/agent-health.md`) — no
+> fabricated telemetry.
 
 ## 1. System Architecture
 

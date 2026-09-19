@@ -16,6 +16,7 @@ import { pageMeta } from "@/mock/pipeline";
 import { useToast } from "@/layouts/AppLayout";
 import {
   useAgentConfigQuery,
+  useAgentHealthMetricsQuery,
   useAgentHealthQuery,
   usePauseAgentMutation,
   useResumeAgentMutation,
@@ -41,6 +42,13 @@ const LANGUAGE_NAMES: Record<string, string> = {
 
 const truncate = (value: string, max = 64): string =>
   value.length > max ? `${value.slice(0, max - 1)}…` : value;
+
+/** Human duration for a seconds value (real measurement, never estimated). */
+function formatSeconds(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "N/A";
+  if (value < 90) return `${Math.round(value)}s`;
+  return `${(value / 60).toFixed(1)} min`;
+}
 
 function behaviorSummary(config: AgentConfig, key: BehaviorKey): string {
   switch (key) {
@@ -87,12 +95,12 @@ function draftToValue(key: BehaviorKey, draft: string): string | string[] {
 function AIPage({ onToast }: { onToast: (message: string) => void }) {
   const configQuery = useAgentConfigQuery();
   const healthQuery = useAgentHealthQuery();
+  const metricsQuery = useAgentHealthMetricsQuery();
   const updateMutation = useUpdateAgentConfigMutation();
   const pauseMutation = usePauseAgentMutation();
   const resumeMutation = useResumeAgentMutation();
 
   const config = configQuery.data;
-  const health = healthQuery.data;
   const paused = config?.paused ?? false;
   const pendingPause = pauseMutation.isPending || resumeMutation.isPending;
 
@@ -198,21 +206,33 @@ function AIPage({ onToast }: { onToast: (message: string) => void }) {
           <div className="card-header">
             <div><span className="section-kicker">PERFORMANCE</span><h2>Agent health</h2></div>
             <span className="health-badge">
-              {healthQuery.isPending ? "Checking…" : paused ? "Paused" : "Standby"}
+              {healthQuery.isPending ? "Checking…" : paused ? "Paused" : "Active"}
             </span>
           </div>
           <div className="performance-grid">
-            <div><strong>--</strong><span>Text conversations</span></div>
-            <div><strong>--</strong><span>Qualification rate</span></div>
-            <div><strong>--</strong><span>Conversation quality</span></div>
-            <div><strong>--</strong><span>Avg. first response</span></div>
+            <div>
+              <strong>{metricsQuery.isPending ? "…" : metricsQuery.data ? String(metricsQuery.data.textConversations.total) : "N/A"}</strong>
+              <span>Text conversations</span>
+            </div>
+            <div>
+              <strong>{metricsQuery.isPending ? "…" : metricsQuery.data?.qualification.ratePercent != null ? `${metricsQuery.data.qualification.ratePercent}%` : "N/A"}</strong>
+              <span>Qualification rate</span>
+            </div>
+            <div>
+              <strong>N/A</strong>
+              <span>Conversation quality</span>
+            </div>
+            <div>
+              <strong>{metricsQuery.isPending ? "…" : metricsQuery.data?.responsiveness.avgFirstResponseSec != null ? formatSeconds(metricsQuery.data.responsiveness.avgFirstResponseSec) : "N/A"}</strong>
+              <span>Avg. first response</span>
+            </div>
           </div>
           <p className="lede">
-            {healthQuery.isPending
-              ? "Loading health…"
-              : healthQuery.isError
-                ? `Could not load health: ${getUserMessage(healthQuery.error)}`
-                : health?.metricsReason ?? "Unavailable"}
+            {metricsQuery.isPending
+              ? "Loading metrics…"
+              : metricsQuery.isError || !metricsQuery.data
+                ? "Metrics unavailable — showing N/A instead of estimates."
+                : `Live from the database: ${metricsQuery.data.textConversations.total} conversations (${metricsQuery.data.textConversations.active} active) · ${metricsQuery.data.qualification.qualifiedConversations} of ${metricsQuery.data.qualification.totalConversations} qualified · first response measured over ${metricsQuery.data.responsiveness.conversationsMeasured} conversation(s). No deterministic quality metric exists.`}
           </p>
         </Card>
       </div>

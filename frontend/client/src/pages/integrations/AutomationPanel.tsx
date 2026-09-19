@@ -78,9 +78,15 @@ export function AutomationPanel({ onToast }: { onToast: (message: string) => voi
       <div className="integration-hero">
         <div className="integration-logo violet"><Network size={25} /></div>
         <div>
-          <span className="section-kicker">{diag?.status === "ok" ? "CONNECTED SERVICE" : "SERVICE STATUS"}</span>
+          <span className="section-kicker">{diag?.status === "ok" ? "CONNECTED SERVICE" : "OPTIONAL INTEGRATION"}</span>
           <h2>Automation center · n8n</h2>
           <p>{heroText}</p>
+          {diag?.status === "not_configured" ? (
+            <p className="lede" style={{ marginTop: 6 }}>
+              n8n is optional — core conversation, qualification, CRM, WhatsApp,
+              calendar, and follow-up workflows run without it.
+            </p>
+          ) : null}
         </div>
         {chip}
         <Button variant="ghost" onClick={() => setConnOpen(true)}>Manage connection</Button>

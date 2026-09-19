@@ -7,6 +7,7 @@
  *   POST  /api/v1/agent/pause   -> usePauseAgentMutation
  *   POST  /api/v1/agent/resume  -> useResumeAgentMutation
  *   GET   /api/v1/agent/health  -> useAgentHealthQuery
+ *   GET   /api/v1/agent/health-metrics -> useAgentHealthMetricsQuery
  *
  * Uses the shared QueryClient (via context — never creates a new one) and
  * the agent API services (never fetch/axios).
@@ -17,6 +18,7 @@ import { ApiError } from "../errors";
 import {
   getAgentConfig,
   getAgentHealth,
+  getAgentHealthMetrics,
   patchAgentConfig,
   pauseAgent,
   resumeAgent,
@@ -27,6 +29,7 @@ export const agentKeys = {
   all: ["agent"] as const,
   config: () => [...agentKeys.all, "config"] as const,
   health: () => [...agentKeys.all, "health"] as const,
+  healthMetrics: () => [...agentKeys.all, "health-metrics"] as const,
 };
 
 /** Don't retry requests that will deterministically fail again. */
@@ -61,6 +64,16 @@ export function useAgentHealthQuery() {
     queryFn: () => getAgentHealth(),
     retry: shouldRetry,
     staleTime: 0,
+  });
+}
+
+/** Real aggregate metrics (SQL counts/averages; quality always null). */
+export function useAgentHealthMetricsQuery() {
+  return useQuery({
+    queryKey: agentKeys.healthMetrics(),
+    queryFn: () => getAgentHealthMetrics(),
+    retry: shouldRetry,
+    staleTime: 30_000,
   });
 }
 

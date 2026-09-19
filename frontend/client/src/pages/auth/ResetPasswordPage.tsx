@@ -13,8 +13,8 @@ export default function ResetPasswordPage() {
         <AmbientShards variant="auth" />
         <Logo />
         <div className="auth-aside-copy">
-          <span className="section-kicker">VOICE-LED LOGISTICS OPS</span>
-          <h1>Talk. Qualify.<br /><em>Move logistics forward.</em></h1>
+          <span className="section-kicker">AI-POWERED LOGISTICS OPS</span>
+          <h1>Qualify conversations.<br /><em>Move logistics forward.</em></h1>
           <p>MadVoice AI turns every logistics conversation into a qualified, actionable next step.</p>
         </div>
         <div className="auth-proof">

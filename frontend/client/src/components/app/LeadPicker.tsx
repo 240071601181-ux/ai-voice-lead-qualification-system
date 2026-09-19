@@ -10,7 +10,7 @@ const DEBOUNCE_MS = 250;
 /**
  * Shared real-lead radio picker (live GET /api/v1/leads, debounced
  * search). Never fabricates rows: loading/empty/error states only.
- * Used by Start AI Call and Schedule follow-up dialogs.
+ * Used by the conversation starter and Schedule follow-up dialogs.
  */
 export function LeadPicker({
   value,

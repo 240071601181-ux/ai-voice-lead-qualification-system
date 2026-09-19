@@ -12,6 +12,7 @@ import type {
   AgentConfig,
   AgentConfigPatch,
   AgentHealth,
+  AgentHealthMetrics,
 } from "../types";
 
 /** Current operator-visible agent configuration (backend runtime store). */
@@ -37,4 +38,9 @@ export function resumeAgent(): Promise<AgentConfig> {
 /** Honest agent health: real status flags; metrics are null (uncollected). */
 export function getAgentHealth(): Promise<AgentHealth> {
   return httpClient.get<AgentHealth>("/api/v1/agent/health");
+}
+
+/** Real aggregate metrics (SQL counts/averages; quality is always null). */
+export function getAgentHealthMetrics(): Promise<AgentHealthMetrics> {
+  return httpClient.get<AgentHealthMetrics>("/api/v1/agent/health-metrics");
 }
