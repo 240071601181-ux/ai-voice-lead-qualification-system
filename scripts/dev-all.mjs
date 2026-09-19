@@ -1,5 +1,5 @@
 /**
- * MadVoice AI — one-command local development launcher.
+ * MadLead AI — one-command local development launcher.
  *
  * From the project root:
  *   npm run dev:all
@@ -218,7 +218,7 @@ async function ensureService({ name, port, healthUrl, expectJsonOk, spawnArgs, s
 }
 
 async function main() {
-  console.log("[dev:all] MadVoice AI local development launcher");
+  console.log("[dev:all] MadLead AI local development launcher");
   console.log(`[dev:all] Root: ${ROOT}`);
   checkEnvFiles();
 

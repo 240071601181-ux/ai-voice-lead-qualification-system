@@ -1,6 +1,6 @@
 # n8n — Optional External Automation (Phase 15)
 
-n8n is **optional**. Core MadVoice workflows run fully with `N8N_ENABLED=false`
+n8n is **optional**. Core MadLead workflows run fully with `N8N_ENABLED=false`
 (the default when unset). No conversation, message, state extraction,
 qualification, CRM, WhatsApp, calendar, or follow-up operation fails when
 n8n is disabled or unreachable.

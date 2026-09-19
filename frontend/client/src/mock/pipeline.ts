@@ -84,9 +84,9 @@ export const pageMeta: Record<string, { title: string; eyebrow: string; descript
   "/crm": { title: "CRM sync", eyebrow: "INTEGRATIONS / CRM", description: "Keep your customer record and qualification signal aligned." },
   "/whatsapp": { title: "WhatsApp", eyebrow: "INTEGRATIONS / MESSAGING", description: "Turn a qualified conversation into a timely follow-up." },
   "/calendar": { title: "Calendar", eyebrow: "INTEGRATIONS / MEETINGS", description: "Convert intent into a confirmed next conversation." },
-  "/automation": { title: "Automation center", eyebrow: "INTEGRATIONS / N8N · OPTIONAL", description: "Optional external workflows — core MadVoice flows run without n8n." },
+  "/automation": { title: "Automation center", eyebrow: "INTEGRATIONS / N8N · OPTIONAL", description: "Optional external workflows — core MadLead flows run without n8n." },
   "/activity": { title: "Activity", eyebrow: "SYSTEM / AUDIT TRAIL", description: "A complete operational timeline, ready for review." },
   "/notifications": { title: "Notifications", eyebrow: "SYSTEM / SIGNALS", description: "Operational alerts that need your attention." },
-  "/settings": { title: "Settings", eyebrow: "SYSTEM / CONFIGURATION", description: "Shape the way MadVoice AI works for your team." },
+  "/settings": { title: "Settings", eyebrow: "SYSTEM / CONFIGURATION", description: "Shape the way MadLead AI works for your team." },
   "/profile": { title: "Profile", eyebrow: "SYSTEM / YOUR ACCOUNT", description: "Manage your identity and workspace details." },
 };

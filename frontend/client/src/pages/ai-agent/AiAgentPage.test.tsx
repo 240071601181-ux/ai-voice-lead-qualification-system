@@ -23,7 +23,7 @@ const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 
 const config = {
-  name: "MadVoice Qualifier", version: "v2.4", paused: false, greeting: "Hi",
+  name: "MadLead Qualifier", version: "v2.4", paused: false, greeting: "Hi",
   qualificationQuestions: ["q1"], escalationBehavior: "esc", callEnding: "bye",
   languages: ["en"], voice: "voice-1", maxTurns: 10, allowCodeSwitch: true,
   requireConfirmation: false,

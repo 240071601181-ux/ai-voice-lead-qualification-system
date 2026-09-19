@@ -56,17 +56,17 @@ describe('Workspace settings API', () => {
   });
 
   it('persists a workspace name change (PATCH round-trip)', async () => {
-    const updated = { ...defaultRow, workspace_name: 'MadVoice Logistics' };
+    const updated = { ...defaultRow, workspace_name: 'MadLead Logistics' };
     mockQuery.mockResolvedValueOnce({ rows: [updated] });
     const patch = await request(app)
       .patch('/api/v1/settings')
-      .send({ workspace_name: 'MadVoice Logistics' });
+      .send({ workspace_name: 'MadLead Logistics' });
     expect(patch.status).toBe(200);
-    expect(patch.body.data.workspace_name).toBe('MadVoice Logistics');
+    expect(patch.body.data.workspace_name).toBe('MadLead Logistics');
 
     mockQuery.mockResolvedValueOnce({ rows: [updated] });
     const reread = await request(app).get('/api/v1/settings');
-    expect(reread.body.data.workspace_name).toBe('MadVoice Logistics');
+    expect(reread.body.data.workspace_name).toBe('MadLead Logistics');
   });
 
   it('persists notification toggles', async () => {

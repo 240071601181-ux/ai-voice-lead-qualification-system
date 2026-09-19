@@ -52,7 +52,9 @@ export function QualificationPanel({ conversationId }: { conversationId: string 
         <span className="panel-title">Qualification</span>
         <Button
           variant="secondary"
-          onClick={() => qualify.mutate()}
+          onClick={() => {
+            if (!qualify.isPending) qualify.mutate();
+          }}
           disabled={qualify.isPending}
         >
           {qualify.isPending ? "Scoring…" : "Score now"}

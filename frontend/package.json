@@ -1,6 +1,7 @@
 {
-  "name": "madvoice-ai",
+  "name": "madlead-ai",
   "version": "1.0.0",
+  "description": "AI-powered logistics lead qualification and sales automation",
   "type": "module",
   "license": "MIT",
   "scripts": {

@@ -1,4 +1,4 @@
-# MadVoice AI — Text-First Lead Qualification System
+# MadLead AI — Text-First Lead Qualification System
 
 ## Overview
 

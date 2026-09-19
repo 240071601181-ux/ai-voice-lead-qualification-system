@@ -1,7 +1,7 @@
 /**
  * Agent configuration service — small runtime store for the AI Agent page.
  *
- * The static voice-agent defaults live in `src/agent/config.ts` (system
+ * The static agent defaults live in `src/agent/config.ts` (system
  * prompt, languages, qualification questions, conversation rules). This
  * service layers the operator-editable conversation behavior on top
  * (greeting, qualification questions, escalation behavior, call ending)
@@ -15,11 +15,11 @@
 import { agentConfig } from '../agent/config';
 
 export const AGENT_VERSION = 'v2.4';
-export const AGENT_NAME = 'MadVoice Qualifier';
+export const AGENT_NAME = 'MadLead Qualifier';
 export const AGENT_VOICE_LABEL = 'Nova / Warm';
 
 const DEFAULT_GREETING =
-  'Welcome the caller warmly, introduce the MadVoice logistics qualification, and ask how you can help.';
+  'Welcome the customer warmly, introduce the MadLead logistics qualification, and ask how you can help.';
 const DEFAULT_ESCALATION =
   'Offer a human handoff after 2 unsuccessful retries.';
 const DEFAULT_CALL_ENDING =

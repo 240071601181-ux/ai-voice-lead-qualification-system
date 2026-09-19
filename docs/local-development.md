@@ -1,4 +1,4 @@
-# Local Development — MadVoice AI
+# Local Development — MadLead AI
 
 Fixed, permanent local setup. After a Windows restart the whole workflow is one command.
 

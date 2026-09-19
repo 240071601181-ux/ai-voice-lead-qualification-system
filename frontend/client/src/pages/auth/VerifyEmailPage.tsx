@@ -19,7 +19,7 @@ export default function VerifyEmailPage() {
         <div className="auth-aside-copy">
           <span className="section-kicker">AI-POWERED LOGISTICS OPS</span>
           <h1>Qualify conversations.<br /><em>Move logistics forward.</em></h1>
-          <p>MadVoice AI turns every logistics conversation into a qualified, actionable next step.</p>
+          <p>MadLead AI turns every logistics conversation into a qualified, actionable next step.</p>
         </div>
         <div className="auth-proof">
           <span><CheckCircle2 size={15} />AI qualification in real time</span>
@@ -43,7 +43,7 @@ export default function VerifyEmailPage() {
             <button onClick={() => navigate("/login")}>Back to sign in</button>
             <span>Didn’t get a code? <button onClick={() => setResent(true)}>Resend</button></span>
           </div>
-          <small className="legal-copy">By continuing, you agree to MadVoice AI’s Terms of Service and Privacy Policy.</small>
+          <small className="legal-copy">By continuing, you agree to MadLead AI’s Terms of Service and Privacy Policy.</small>
         </div>
       </div>
     </div>

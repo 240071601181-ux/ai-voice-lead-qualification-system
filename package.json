@@ -1,7 +1,7 @@
 {
   "name": "ai-voice-lead-qualification",
   "version": "0.1.0",
-  "description": "AI Voice Lead Qualification System for Logistics & Transport",
+  "description": "AI-powered logistics lead qualification and sales automation",
   "main": "dist/app.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",

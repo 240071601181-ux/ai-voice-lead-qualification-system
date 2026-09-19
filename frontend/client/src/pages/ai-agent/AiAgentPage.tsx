@@ -147,7 +147,7 @@ function AIPage({ onToast }: { onToast: (message: string) => void }) {
           <div className="card-header">
             <div>
               <span className="section-kicker">TEXT ASSISTANT</span>
-              <h2>{config ? `${config.name} ${config.version}` : "MadVoice Qualifier v2.4"}</h2>
+              <h2>{config ? `${config.name} ${config.version}` : "MadLead Qualifier v2.4"}</h2>
             </div>
             <span className={`status-chip ${paused ? "status-abandoned" : "status-active"}`}>
               {configQuery.isPending ? "Loading…" : paused ? "Paused" : "Active"}

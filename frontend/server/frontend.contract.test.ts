@@ -13,7 +13,7 @@ function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
 }
 
-describe("MadVoice AI frontend contract (post-voice)", () => {
+describe("MadLead AI frontend contract (post-voice)", () => {
   it("routes text-first pages and redirects legacy /calls URLs", () => {
     const routes = read("client/src/app/routes.tsx");
     expect(routes).toContain("/conversations");
@@ -38,11 +38,40 @@ describe("MadVoice AI frontend contract (post-voice)", () => {
     expect(searchIndex).toContain('"/conversations"');
   });
 
-  it("keeps qualification tiers and the MadVoice brand", () => {
+  it("keeps qualification tiers and the MadLead brand", () => {
     const pipeline = read("client/src/mock/pipeline.ts");
-    expect(pipeline).toContain("MadVoice");
+    expect(pipeline).toContain("MadLead");
     expect(pipeline).toContain("HOT");
     expect(pipeline).toContain("WARM");
     expect(pipeline).toContain("COLD");
+  });
+
+  it("brands the shell, login, and browser title as MadLead AI", () => {
+    expect(read("client/src/components/app/ui.tsx")).toContain("MadLead <b>AI</b>");
+    expect(read("client/src/pages/auth/AuthScreen.tsx")).toContain("MadLead AI turns");
+    const html = read("client/index.html");
+    expect(html).toContain("<title>MadLead AI");
+  });
+
+  it("keeps stale MadVoice/voice-led branding out of customer-facing files", () => {
+    const customerFacing = [
+      "client/src/components/app/ui.tsx",
+      "client/src/pages/auth/AuthScreen.tsx",
+      "client/src/pages/auth/AccountCreatedPage.tsx",
+      "client/src/pages/auth/VerifyEmailPage.tsx",
+      "client/src/pages/auth/ResetPasswordPage.tsx",
+      "client/src/pages/system/ProfilePage.tsx",
+      "client/src/pages/system/HelpPage.tsx",
+      "client/src/pages/integrations/IntegrationPage.tsx",
+      "client/src/mock/pipeline.ts",
+      "client/src/components/app/searchIndex.ts",
+      "client/src/app/routes.tsx",
+      "client/index.html",
+    ];
+    for (const rel of customerFacing) {
+      const source = read(rel);
+      expect(source, rel).not.toMatch(/madvoice/i);
+      expect(source, rel).not.toMatch(/VOICE-LED LOGISTICS OPS/);
+    }
   });
 });

@@ -9,7 +9,7 @@ export default function HelpPage() {
     { icon: BookOpen, color: "cyan", title: "Playbooks", sub: "Qualification flows, call scripts, and escalation paths." },
     { icon: Phone, color: "green", title: "Voice operations", sub: "Languages, latency budgets, and handoff behavior." },
     { icon: MessageCircle, color: "violet", title: "Messaging guides", sub: "Approved WhatsApp templates and consent rules." },
-    { icon: LifeBuoy, color: "amber", title: "Contact support", sub: "Reach the MadVoice operations team." },
+    { icon: LifeBuoy, color: "amber", title: "Contact support", sub: "Reach the MadLead operations team." },
   ];
   return (
     <>

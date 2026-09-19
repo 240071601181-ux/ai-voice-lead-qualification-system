@@ -10,7 +10,7 @@ import type { IconType, Lead } from "@/mock/pipeline";
 export function Logo({ compact = false }: { compact?: boolean }) {
   return <div className={`brand-lockup ${compact ? "compact" : ""}`}>
     <span className="brand-mark"><span>M</span></span>
-    {!compact && <span className="brand-name">MadVoice <b>AI</b></span>}
+    {!compact && <span className="brand-name">MadLead <b>AI</b></span>}
   </div>;
 }
 
