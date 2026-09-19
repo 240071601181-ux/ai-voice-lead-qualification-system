@@ -38,6 +38,17 @@ export function getQualificationById(id: string): Promise<Qualification> {
   );
 }
 
+export interface QualificationMix {
+  total: number;
+  hot: number;
+  warm: number;
+  cold: number;
+}
+
+export function getQualificationMix(): Promise<QualificationMix> {
+  return httpClient.get<QualificationMix>("/api/v1/dashboard/qualification-mix");
+}
+
 export function getQualificationByLead(leadId: string): Promise<Qualification> {
   return httpClient.get<Qualification>(
     `/api/v1/qualifications/leads/${encodeURIComponent(leadId)}`

@@ -12,6 +12,7 @@ import {
   logout as apiLogout,
   register as apiRegister,
   restoreSession,
+  updateProfileName as apiUpdateProfileName,
 } from "../session";
 
 export const sessionKeys = {
@@ -59,6 +60,17 @@ export function useLogoutMutation() {
       queryClient.setQueryData(sessionKeys.current(), null);
       // Drop cached conversation rows: the next login must not see them.
       queryClient.removeQueries({ queryKey: ["conversations"] });
+    },
+  });
+}
+
+/** Persist the display name; reseeds the session cache on success. */
+export function useUpdateProfileMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => apiUpdateProfileName(name),
+    onSuccess: (user) => {
+      queryClient.setQueryData(sessionKeys.current(), user);
     },
   });
 }

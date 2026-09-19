@@ -31,6 +31,19 @@ export const markUserLoggedIn = async (id: string): Promise<void> => {
   await pool.query('UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1', [id]);
 };
 
+/**
+ * Phase 17 — the ONLY profile mutation exposed to users: display name.
+ * Protected fields (id, email, password_hash, status, ownership, security
+ * columns) are never writable through this path by construction.
+ */
+export const updateUserName = async (id: string, name: string): Promise<User | null> => {
+  const res = await pool.query(
+    'UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+    [name, id]
+  );
+  return res.rows[0] || null;
+};
+
 export const createSession = async (input: {
   user_id: string;
   refresh_hash: string;

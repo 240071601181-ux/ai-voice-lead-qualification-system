@@ -112,6 +112,20 @@ export async function restoreSession(): Promise<SessionUser | null> {
   return ok ? currentUser : null;
 }
 
+/**
+ * Phase 17 — persist the display name (PATCH /api/v1/auth/me, name only).
+ * The backend returns the updated user (no tokens); the in-memory session
+ * is reseeded so sidebar/avatar/profile update immediately and survive
+ * reloads via the normal refresh flow.
+ */
+export async function updateProfileName(name: string): Promise<SessionUser> {
+  return authedRequest(async (headers) => {
+    const user = await httpClient.patch<SessionUser>("/api/v1/auth/me", { name }, { headers });
+    currentUser = user;
+    return user;
+  });
+}
+
 /** `Authorization` header for backend calls, else `{}`. */
 export function getAuthHeader(): Record<string, string> {
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};

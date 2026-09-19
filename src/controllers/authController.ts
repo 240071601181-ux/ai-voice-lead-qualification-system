@@ -7,6 +7,7 @@ import {
   logoutSession,
   refreshSession,
   registerUser,
+  renameAuthenticatedUser,
 } from '../services/authService';
 import { logger } from '../utils/logger';
 
@@ -134,6 +135,30 @@ export const meHandler = async (req: AuthenticatedRequest, res: Response, next: 
       });
     }
     const user = await getAuthenticatedUser(req.user.id);
+    return res.json({ success: true, data: user });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+/**
+ * Phase 17 — PATCH /api/v1/auth/me { name }: rename only. The service
+ * ignores every other body field, so protected fields (id, email,
+ * password_hash, status, ownership) can never change through this route.
+ */
+export const updateMeHandler = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Authentication required', code: 401 },
+      });
+    }
+    const user = await renameAuthenticatedUser(req.user.id, (req.body || {}).name);
     return res.json({ success: true, data: user });
   } catch (err) {
     return next(err);

@@ -19,6 +19,7 @@ import {
   findUserById,
   markUserLoggedIn,
   revokeSession,
+  updateUserName,
 } from '../repositories/userRepository';
 import { logger } from '../utils/logger';
 
@@ -225,4 +226,24 @@ export const getAuthenticatedUser = async (userId: string): Promise<SafeUser> =>
   const user = await findUserById(userId);
   if (!user || user.status !== 'active') throw authError(401, 'Invalid or expired credentials');
   return toSafeUser(user);
+};
+
+/**
+ * Phase 17 — rename the authenticated user. Only the display name is
+ * writable: id/email/password_hash/status/ownership can never change here
+ * (the repository updates exactly one column). Empty names are rejected;
+ * overlong names are trimmed to the column-safe limit.
+ */
+export const renameAuthenticatedUser = async (
+  userId: string,
+  name: unknown
+): Promise<SafeUser> => {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (trimmed.length === 0) throw authError(400, 'Name must not be empty');
+  if (trimmed.length > MAX_NAME_LEN) throw authError(400, 'Name is too long');
+  const existing = await findUserById(userId);
+  if (!existing || existing.status !== 'active') throw authError(401, 'Invalid or expired credentials');
+  const updated = await updateUserName(userId, trimmed);
+  if (!updated) throw authError(401, 'Invalid or expired credentials');
+  return toSafeUser(updated);
 };

@@ -22,6 +22,7 @@ import {
   createQualification,
   getQualificationById,
   getQualificationByLead,
+  getQualificationMix,
   listQualifications,
 } from "../services/qualifications";
 import type { CreateQualificationInput, Lead as ApiLead, Qualification as ApiQualification } from "../types";
@@ -176,6 +177,17 @@ export function useQualificationDetail(
 export interface QualificationRow {
   lead: ApiLead;
   qualification: ApiQualification;
+}
+
+/** Live qualification mix for the dashboard donut (SQL counts, never rows). */
+export function useQualificationMixQuery(opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: [...qualificationKeys.all, "mix"] as const,
+    queryFn: () => getQualificationMix(),
+    retry: shouldRetry,
+    staleTime: 30_000,
+    enabled: opts?.enabled ?? true,
+  });
 }
 
 /** Client-side tier filter over fetched rows (no backend tier filter exists). */

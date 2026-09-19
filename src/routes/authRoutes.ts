@@ -7,6 +7,7 @@ import {
   meHandler,
   refreshHandler,
   registerHandler,
+  updateMeHandler,
 } from '../controllers/authController';
 
 const router = Router();
@@ -19,5 +20,6 @@ router.post('/login', loginRateLimit, loginHandler);
 router.post('/refresh', refreshHandler);
 router.post('/logout', logoutHandler);
 router.get('/me', requireAuth, meHandler);
+router.patch('/me', requireAuth, updateMeHandler);
 
 export default router;

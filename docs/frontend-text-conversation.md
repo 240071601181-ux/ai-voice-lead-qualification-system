@@ -265,3 +265,18 @@ when enough information is available." / "No logistics details yet." ï¿½ no
 debug wording. Logistics labels stay human-readable (Customer Name, Pickup,
 Destination, Vehicle, Cargo, Weight, Dimensions, Required Date, Budget,
 Urgency, Booking Intent).
+
+## Authenticated profile + dashboard honesty (Phase 17)
+
+- Profile, sidebar, header, and account menu render the real `/auth/me`
+  user via the shared session query; avatar initials follow the
+  first-two-letters rule (`userInitials`), with "Unnamed User"/"U"/"Not
+  set" fallbacks — no Maya Singh/MS/Acme Cargo anywhere. Display name
+  persists through `PATCH /api/v1/auth/me` (name only); see
+  `docs/profile-data.md`.
+- Leads table: the COMPANY column is now EMAIL, showing only the lead
+  email (or "—"), truncated with a full-value tooltip.
+- Dashboard qualification donut reads `GET
+  /api/v1/dashboard/qualification-mix` (SQL tier counts) with a proper
+  empty state; metric cards show live list totals only; no trend
+  percentages. See `docs/dashboard-analytics.md`.

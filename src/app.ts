@@ -16,6 +16,7 @@ import crmRoutes from './routes/crmRoutes';
 import whatsappRoutes from './routes/whatsappRoutes';
 import n8nRoutes from './routes/n8nRoutes';
 import settingsRoutes from './routes/settingsRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
 
 const app = express();
 app.use(express.json());
@@ -89,6 +90,7 @@ app.use('/api/v1/crm', crmRoutes);
 app.use('/api/v1/whatsapp', whatsappRoutes);
 app.use('/api/v1/n8n', n8nRoutes);
 app.use('/api/v1/settings', settingsRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
 
 // Centralized error handling middleware
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
