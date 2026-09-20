@@ -9,13 +9,42 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = { query: jest.fn() };
   return { pool: mPool, default: mPool };
 });
 
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({
+      id: 'admin-user-1',
+      email: 'admin@example.com',
+      password_hash: 'x',
+      name: 'Test Admin',
+      role: 'ADMIN',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  };
+});
+
 describe('agent health metrics', () => {
+  let restoreAuth: (() => void) | null = null;
+  beforeAll(() => {
+    restoreAuth = useInternalAuthSecret();
+  });
+  afterAll(() => {
+    restoreAuth?.();
+  });
+
+  const authedGet = (url: string) =>
+    request(app).get(url).set('Authorization', bearerFor());
+
   beforeEach(() => {
     jest.clearAllMocks();
     (pool.query as jest.Mock).mockImplementation(async (sql: string) => {
@@ -33,7 +62,7 @@ describe('agent health metrics', () => {
   });
 
   it('returns real aggregates with no fabricated quality', async () => {
-    const res = await request(app).get('/api/v1/agent/health-metrics');
+    const res = await authedGet('/api/v1/agent/health-metrics');
     expect(res.status).toBe(200);
     expect(res.body.data.textConversations).toEqual({
       total: 5,
@@ -60,7 +89,7 @@ describe('agent health metrics', () => {
       if (sql.includes('COUNT(DISTINCT conversation_id)')) return { rows: [{ qualified: 0 }] };
       return { rows: [] };
     });
-    const res = await request(app).get('/api/v1/agent/health-metrics');
+    const res = await authedGet('/api/v1/agent/health-metrics');
     expect(res.status).toBe(200);
     expect(res.body.data.textConversations.total).toBe(0);
     expect(res.body.data.qualification.ratePercent).toBeNull();

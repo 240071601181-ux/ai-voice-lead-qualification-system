@@ -164,8 +164,13 @@ export const registerUser = async (input: {
   const existing = await findUserByEmail(email);
   if (existing) throw authError(409, 'An account with this email already exists');
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  // Phase 20 — public registration never mints administrators: every new
+  // internal user starts as OPERATOR unless the deployer explicitly named
+  // this address BOOTSTRAP_ADMIN_EMAIL (documented bootstrap mechanism).
+  const bootstrap = (process.env.BOOTSTRAP_ADMIN_EMAIL || '').trim().toLowerCase();
+  const role = bootstrap.length > 0 && bootstrap === email ? 'ADMIN' : 'OPERATOR';
   try {
-    const user = await createUser({ email, password_hash: passwordHash, name });
+    const user = await createUser({ email, password_hash: passwordHash, name, role });
     return issueSession(user);
   } catch (err: any) {
     // Unique-violation race between the check and the insert.

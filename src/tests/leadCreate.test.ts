@@ -10,10 +10,29 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = { query: jest.fn() };
   return { pool: mPool, default: mPool };
+});
+
+// Phase 20 — POST /api/v1/leads is internal: ADMIN identity for every call.
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({
+      id: 'admin-user-1',
+      email: 'admin@example.com',
+      password_hash: 'hashed-test-only',
+      name: 'Test Admin',
+      role: 'ADMIN',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  };
 });
 
 jest.mock('../services/n8n/n8nEmitter', () => ({
@@ -25,9 +44,20 @@ jest.mock('../services/whatsapp/whatsappSender', () => ({
 }));
 
 describe('POST /api/v1/leads status handling', () => {
+  let restoreAuth: (() => void) | null = null;
+  beforeAll(() => {
+    restoreAuth = useInternalAuthSecret();
+  });
+  afterAll(() => {
+    restoreAuth?.();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
+
+  const authedPost = (url: string) =>
+    request(app).post(url).set('Authorization', bearerFor());
 
   it('creates a lead without status, defaulting to NEW', async () => {
     const created: any = {
@@ -40,7 +70,7 @@ describe('POST /api/v1/leads status handling', () => {
     };
     (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [created] });
 
-    const res = await request(app).post('/api/v1/leads').send({
+    const res = await authedPost('/api/v1/leads').send({
       source: 'web',
       name: 'Arjun Rao',
       phone: '+919876522109',
@@ -66,7 +96,7 @@ describe('POST /api/v1/leads status handling', () => {
     };
     (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [created] });
 
-    const res = await request(app).post('/api/v1/leads').send({
+    const res = await authedPost('/api/v1/leads').send({
       source: 'web',
       name: 'Meera Shah',
       phone: '+919821080451',

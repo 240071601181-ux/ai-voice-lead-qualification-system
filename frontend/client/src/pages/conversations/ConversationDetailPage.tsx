@@ -17,6 +17,7 @@ import {
 } from "@/components/app/conversationView";
 import { useIsMutating, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/errors";
+import { createCustomerAccess, revokeCustomerAccess } from "@/api/services/conversations";
 import {
   conversationKeys,
   useAbandonConversationMutation,
@@ -43,6 +44,18 @@ import {
 export function QualificationPanel({ conversationId }: { conversationId: string }) {
   const qualification = useConversationQualificationQuery(conversationId);
   const qualify = useQualifyConversationMutation(conversationId);
+  // Same-tick double-click guard (mirrors the composer): isPending flips
+  // only after a render, so two clicks in one tick would fire two POSTs.
+  const scoringInFlight = useRef(false);
+  const scoreOnce = () => {
+    if (scoringInFlight.current || qualify.isPending) return;
+    scoringInFlight.current = true;
+    qualify.mutate(undefined, {
+      onSettled: () => {
+        scoringInFlight.current = false;
+      },
+    });
+  };
   const notFound =
     qualification.isError &&
     qualification.error instanceof ApiError &&
@@ -51,13 +64,13 @@ export function QualificationPanel({ conversationId }: { conversationId: string 
     <Card className="panel-card" data-testid="qualification-panel">
       <div className="panel-heading">
         <span className="panel-title">Qualification</span>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            if (!qualify.isPending) qualify.mutate();
-          }}
-          disabled={qualify.isPending}
-        >
+          <Button
+            variant="secondary"
+            onClick={() => {
+              scoreOnce();
+            }}
+            disabled={qualify.isPending}
+          >
           {qualify.isPending ? "Scoring…" : "Score now"}
         </Button>
       </div>
@@ -244,6 +257,92 @@ export function ConversationStatusPanel({
       {complete.isError || abandon.isError ? (
         <p className="panel-error">{conversationErrorCopy(complete.error ?? abandon.error)}</p>
       ) : null}
+    </Card>
+  );
+}
+
+/**
+ * Phase 20 — customer share link for one conversation (internal owners).
+ *
+ * Generates a single-conversation /chat/<token> link via the backend (the
+ * raw token is returned once and never stored), shows it for copying with
+ * its expiry, and revokes it on demand. Revocation cuts customer access
+ * immediately; history is untouched.
+ */
+export function CustomerChatShare({ conversationId }: { conversationId: string }) {
+  const [link, setLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const generate = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setCopied(false);
+    try {
+      setLink(await createCustomerAccess(conversationId));
+    } catch (err) {
+      setError(err instanceof ApiError ? conversationErrorCopy(err) : "Couldn’t create the link.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await revokeCustomerAccess(conversationId);
+      setLink(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? conversationErrorCopy(err) : "Couldn’t revoke access.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <Card className="panel-card" data-testid="customer-share">
+      <div className="panel-heading"><span className="panel-title">Customer chat</span></div>
+      <p className="panel-note">
+        Share a link that opens only this conversation — no dashboard, leads, or settings.
+      </p>
+      {!link ? (
+        <div className="panel-actions">
+          <Button variant="secondary" onClick={() => void generate()} disabled={busy}>
+            {busy ? "Creating…" : "Generate customer link"}
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="meeting-field">
+            <label className="field-label" htmlFor="customer-chat-link">Share link</label>
+            <input id="customer-chat-link" value={link.url} readOnly className="text-input" />
+          </div>
+          <p className="panel-note">Expires {new Date(link.expiresAt).toLocaleString()}</p>
+          <div className="panel-actions">
+            <Button variant="secondary" onClick={() => void copy()} disabled={busy}>
+              {copied ? "Copied" : "Copy link"}
+            </Button>
+            <Button variant="secondary" onClick={() => void revoke()} disabled={busy}>
+              {busy ? "Revoking…" : "Revoke access"}
+            </Button>
+          </div>
+        </>
+      )}
+      {error ? <p className="panel-error">{error}</p> : null}
     </Card>
   );
 }
@@ -508,6 +607,7 @@ function ConversationDetailPage() {
         </div>
         <aside className="conversation-side">
           <ConversationStatusPanel conversationId={id} status={status} />
+          <CustomerChatShare conversationId={id} />
           <Card className="panel-card" data-testid="lead-panel">
             <div className="panel-heading"><span className="panel-title">Lead</span></div>
             {detail.isPending ? (

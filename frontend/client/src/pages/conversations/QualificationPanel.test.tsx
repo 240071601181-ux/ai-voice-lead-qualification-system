@@ -79,14 +79,16 @@ describe("QualificationPanel", () => {
     expect(postCall[1]?.headers).toMatchObject({ Authorization: "Bearer test-token" });
   });
 
-  it("shows a loading state and prevents duplicate scoring clicks", async () => {
+  it("shows a loading state and prevents duplicate scoring clicks", { timeout: 30000 }, async () => {
     const user = userEvent.setup();
     let posts = 0;
     mockFetch((url, init) => {
       if (String(init?.method || "GET") === "POST") {
         posts += 1;
+        // Slow enough that the second click deterministically lands while
+        // pending (a fast resolve would legitimately re-enable re-scoring).
         return new Promise<Response>((resolve) =>
-          setTimeout(() => resolve(jsonResponse(201, { success: true, data: qualification })), 50)
+          setTimeout(() => resolve(jsonResponse(201, { success: true, data: qualification })), 500)
         );
       }
       return jsonResponse(404, { success: false, error: { message: "Qualification not found", code: 404 } });

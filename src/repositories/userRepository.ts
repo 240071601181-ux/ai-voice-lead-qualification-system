@@ -2,17 +2,18 @@
  * Phase 11 — user + session persistence (parameterized SQL only).
  */
 import { pool } from '../database';
-import { User, UserSession } from '../models/User';
+import { InternalRole, User, UserSession } from '../models/User';
 
 export const createUser = async (input: {
   email: string;
   password_hash: string;
   name?: string | null;
+  role?: InternalRole;
 }): Promise<User> => {
   const res = await pool.query(
-    `INSERT INTO users (email, password_hash, name)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [input.email, input.password_hash, input.name || null]
+    `INSERT INTO users (email, password_hash, name, role)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [input.email, input.password_hash, input.name || null, input.role || 'OPERATOR']
   );
   return res.rows[0];
 };

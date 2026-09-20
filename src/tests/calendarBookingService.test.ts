@@ -62,9 +62,14 @@ describe('calendarBookingService', () => {
     qualified_at: '2026-09-11T10:06:00.000Z'
   };
 
+  const slotStart = new Date(Date.now() + 2 * 3600_000);
+  slotStart.setSeconds(0, 0);
+  const slotEnd = new Date(slotStart.getTime() + 30 * 60_000);
+  // Phase 20 — slots float in the near future: hardcoded dates expire past
+  // validation ("start must be in the future") as the day progresses.
   const slotInput = {
-    start: '2026-09-20T10:00:00+05:30',
-    end: '2026-09-20T10:30:00+05:30'
+    start: slotStart.toISOString(),
+    end: slotEnd.toISOString(),
   };
 
   beforeEach(() => {
@@ -122,8 +127,8 @@ describe('calendarBookingService', () => {
 
   it('should return the stored meeting without a provider call on duplicate requests', async () => {
     const slotHash = hashCalendarSlot({
-      start: '2026-09-20T04:30:00.000Z',
-      end: '2026-09-20T05:00:00.000Z',
+      start: slotInput.start,
+      end: slotInput.end,
       timezone: 'Asia/Kolkata'
     });
     mockReads();
@@ -158,8 +163,8 @@ describe('calendarBookingService', () => {
 
   it('should skip busy slots without creating events', async () => {
     mockProvider.busyWindows.push({
-      start: '2026-09-20T04:00:00.000Z',
-      end: '2026-09-20T06:00:00.000Z'
+      start: new Date(new Date(slotInput.start).getTime() + 5 * 60_000).toISOString(),
+      end: new Date(new Date(slotInput.start).getTime() + 25 * 60_000).toISOString(),
     });
     mockReads();
     (pool.query as jest.Mock)

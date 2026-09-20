@@ -5,6 +5,7 @@ import { chunkText, validateChunkOptions } from '../services/chunkingService';
 import { MockEmbeddingProvider, getEmbeddingDimension, getEmbeddingProvider } from '../agent/embeddings';
 import { ingestDocument, searchKnowledge } from '../services/knowledgeService';
 import { calculateCosineSimilarity } from '../repositories/knowledgeRepository';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = {
@@ -13,7 +14,35 @@ jest.mock('../database', () => {
   return { pool: mPool, default: mPool };
 });
 
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({
+      id: 'admin-user-1',
+      email: 'admin@example.com',
+      password_hash: 'x',
+      name: 'Test Admin',
+      role: 'ADMIN',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  };
+});
+
 describe('Phase 6: RAG & Knowledge Retrieval System', () => {
+  let restoreAuth: (() => void) | null = null;
+  beforeAll(() => {
+    restoreAuth = useInternalAuthSecret();
+  });
+  afterAll(() => {
+    restoreAuth?.();
+  });
+
+  const authedPost = (url: string) =>
+    request(app).post(url).set('Authorization', bearerFor());
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -202,8 +231,7 @@ describe('Phase 6: RAG & Knowledge Retrieval System', () => {
         .mockResolvedValueOnce({ rows: [mockDocRow] })
         .mockResolvedValueOnce({ rows: [mockChunkRow] });
 
-      const res = await request(app)
-        .post('/api/v1/knowledge/ingest')
+      const res = await authedPost('/api/v1/knowledge/ingest')
         .send({
           title: 'API Terms',
           content: 'API terms of service text content.'
@@ -215,8 +243,7 @@ describe('Phase 6: RAG & Knowledge Retrieval System', () => {
     });
 
     it('POST /api/v1/knowledge/ingest - should reject missing title with 400', async () => {
-      const res = await request(app)
-        .post('/api/v1/knowledge/ingest')
+      const res = await authedPost('/api/v1/knowledge/ingest')
         .send({ content: 'Only content without title' });
 
       expect(res.status).toBe(400);
@@ -227,8 +254,7 @@ describe('Phase 6: RAG & Knowledge Retrieval System', () => {
     it('POST /api/v1/knowledge/search - should perform similarity search and return 200', async () => {
       (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
 
-      const res = await request(app)
-        .post('/api/v1/knowledge/search')
+      const res = await authedPost('/api/v1/knowledge/search')
         .send({
           query: 'shipping rates',
           topK: 3
@@ -240,8 +266,7 @@ describe('Phase 6: RAG & Knowledge Retrieval System', () => {
     });
 
     it('POST /api/v1/knowledge/search - should reject missing query with 400', async () => {
-      const res = await request(app)
-        .post('/api/v1/knowledge/search')
+      const res = await authedPost('/api/v1/knowledge/search')
         .send({});
 
       expect(res.status).toBe(400);

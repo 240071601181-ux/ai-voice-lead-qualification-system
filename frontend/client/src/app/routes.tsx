@@ -34,6 +34,7 @@ import NotificationsPage from "@/pages/system/NotificationsPage";
 import ProfilePage from "@/pages/system/ProfilePage";
 import SettingsPage from "@/pages/system/SettingsPage";
 import HelpPage from "@/pages/system/HelpPage";
+import CustomerChatPage from "@/pages/chat/CustomerChatPage";
 
 /**
  * Phase 14C-2 – full route table.
@@ -71,6 +72,15 @@ export function Router() {
       {authRoute("/reset-password", <ResetPasswordPage />)}
       {authRoute("/verify-email", <VerifyEmailPage />)}
       {authRoute("/account-created", <AccountCreatedPage />)}
+
+      {/* Phase 20 — external customer chat. Public routes with their own
+          minimal shell: never the admin AppLayout, never RequireAuth. */}
+      <Route path="/chat/:token">
+        <CustomerChatPage />
+      </Route>
+      <Route path="/chat">
+        <CustomerChatPage />
+      </Route>
 
       {appRoute("/", "/dashboard", <DashboardPage />)}
       {appRoute("/dashboard", "/dashboard", <DashboardPage />)}

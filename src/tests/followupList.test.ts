@@ -8,10 +8,19 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = { query: jest.fn() };
   return { pool: mPool, default: mPool };
+});
+
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({id:'admin-user-1', email:'admin@example.com', password_hash:'x', name:'Test Admin', role:'ADMIN', status:'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString()})),
+  };
 });
 
 describe('GET /api/v1/followups', () => {
@@ -49,9 +58,20 @@ describe('GET /api/v1/followups', () => {
     jest.clearAllMocks();
   });
 
+  let restoreAuth: (() => void) | null = null;
+  beforeAll(() => {
+    restoreAuth = useInternalAuthSecret();
+  });
+  afterAll(() => {
+    restoreAuth?.();
+  });
+
+  const authedGet = (url: string) =>
+    request(app).get(url).set('Authorization', bearerFor());
+
   it('returns paginated follow-ups with total by default (page 1, limit 20)', async () => {
     mockListReads([row], 1);
-    const res = await request(app).get('/api/v1/followups');
+    const res = await authedGet('/api/v1/followups');
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -66,7 +86,7 @@ describe('GET /api/v1/followups', () => {
 
   it('honors explicit page/limit via LIMIT/OFFSET', async () => {
     mockListReads([row], 42);
-    const res = await request(app).get('/api/v1/followups').query({ page: '2', limit: '5' });
+    const res = await authedGet('/api/v1/followups').query({ page: '2', limit: '5' });
 
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ total: 42, page: 2, limit: 5 });
@@ -75,8 +95,7 @@ describe('GET /api/v1/followups', () => {
 
   it('applies status/lead/action filters to both queries', async () => {
     mockListReads([row], 1);
-    const res = await request(app)
-      .get('/api/v1/followups')
+    const res = await authedGet('/api/v1/followups')
       .query({ status: 'pending', leadId: 'lead-1', action: 'crm_followup' });
 
     expect(res.status).toBe(200);
@@ -97,7 +116,7 @@ describe('GET /api/v1/followups', () => {
       { status: 'nope' },
       { action: 'nope' },
     ]) {
-      const res = await request(app).get('/api/v1/followups').query(query);
+      const res = await authedGet('/api/v1/followups').query(query);
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
     }
@@ -106,7 +125,7 @@ describe('GET /api/v1/followups', () => {
 
   it('returns an empty list with total 0 when nothing matches', async () => {
     mockListReads([], 0);
-    const res = await request(app).get('/api/v1/followups').query({ status: 'completed' });
+    const res = await authedGet('/api/v1/followups').query({ status: 'completed' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);

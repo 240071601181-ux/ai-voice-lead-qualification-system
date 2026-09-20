@@ -7,10 +7,19 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = { query: jest.fn() };
   return { pool: mPool, default: mPool };
+});
+
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({id:'admin-user-1', email:'admin@example.com', password_hash:'x', name:'Test Admin', role:'ADMIN', status:'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString()})),
+  };
 });
 
 jest.mock('../services/whatsapp/whatsappSender', () => ({
@@ -34,9 +43,20 @@ describe('Follow-up endpoints', () => {
     process.env = { ...OLD_ENV, FOLLOWUP_ENABLED: 'true', FOLLOWUP_MAX_RETRIES: '0' };
   });
 
+  let restoreAuth: (() => void) | null = null;
+  beforeAll(() => {
+    restoreAuth = useInternalAuthSecret();
+  });
+
   afterAll(() => {
     process.env = OLD_ENV;
+    restoreAuth?.();
   });
+
+  const authedPost = (url: string) =>
+    request(app).post(url).set('Authorization', bearerFor());
+  const authedGet = (url: string) =>
+    request(app).get(url).set('Authorization', bearerFor());
 
   const mockScheduleReads = () => {
     (pool.query as jest.Mock).mockImplementation((sql: string, params?: any[]) => {
@@ -54,20 +74,18 @@ describe('Follow-up endpoints', () => {
   };
 
   it('should reject scheduling without identity, action, or valid template', async () => {
-    const noIdentity = await request(app).post('/api/v1/followups/schedule').send({ action: 'crm_followup' });
+    const noIdentity = await authedPost('/api/v1/followups/schedule').send({ action: 'crm_followup' });
     expect(noIdentity.status).toBe(400);
-    const badAction = await request(app).post('/api/v1/followups/schedule').send({ callId: 'call-1', action: 'nope' });
+    const badAction = await authedPost('/api/v1/followups/schedule').send({ callId: 'call-1', action: 'nope' });
     expect(badAction.status).toBe(400);
-    const badTemplate = await request(app)
-      .post('/api/v1/followups/schedule')
+    const badTemplate = await authedPost('/api/v1/followups/schedule')
       .send({ callId: 'call-1', action: 'whatsapp_followup', template: 'free_text' });
     expect(badTemplate.status).toBe(400);
   });
 
   it('should schedule explicitly with 201', async () => {
     mockScheduleReads();
-    const res = await request(app)
-      .post('/api/v1/followups/schedule')
+    const res = await authedPost('/api/v1/followups/schedule')
       .send({ callId: 'call-1', action: 'crm_followup' });
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -98,11 +116,11 @@ describe('Follow-up endpoints', () => {
       return Promise.resolve({ rows: [] });
     });
 
-    const executed = await request(app).post('/api/v1/followups/execute-due').send({ limit: 10 });
+    const executed = await authedPost('/api/v1/followups/execute-due').send({ limit: 10 });
     expect(executed.status).toBe(200);
     expect(executed.body.data).toMatchObject({ checked: 1, completed: 1 });
 
-    const found = await request(app).get('/api/v1/followups/f-2');
+    const found = await authedGet('/api/v1/followups/f-2');
     expect(found.status).toBe(200);
 
     (pool.query as jest.Mock).mockImplementation((sql: string) => {
@@ -114,7 +132,7 @@ describe('Follow-up endpoints', () => {
       }
       return Promise.resolve({ rows: [] });
     });
-    const retried = await request(app).post('/api/v1/followups/f-2/retry').send({});
+    const retried = await authedPost('/api/v1/followups/f-2/retry').send({});
     expect(retried.status).toBe(200);
 
     (pool.query as jest.Mock).mockImplementation((sql: string) => {
@@ -126,11 +144,11 @@ describe('Follow-up endpoints', () => {
       }
       return Promise.resolve({ rows: [] });
     });
-    const cancelled = await request(app).post('/api/v1/followups/f-2/cancel').send({});
+    const cancelled = await authedPost('/api/v1/followups/f-2/cancel').send({});
     expect(cancelled.status).toBe(200);
 
     (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
-    const missing = await request(app).get('/api/v1/followups/does-not-exist');
+    const missing = await authedGet('/api/v1/followups/does-not-exist');
     expect(missing.status).toBe(404);
   });
 });

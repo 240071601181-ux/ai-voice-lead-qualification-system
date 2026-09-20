@@ -6,7 +6,7 @@ import {
   useBookConversationMeetingMutation,
   useConversationAvailabilityQuery,
 } from "@/api/hooks/useConversations";
-import type { ConversationAvailabilityQuery } from "@/api/types";
+import type { BookConversationMeetingInput, ConversationAvailabilityQuery, ConversationBooking } from "@/api/types";
 
 const DEFAULT_TIMEZONE = "Asia/Kolkata";
 
@@ -41,17 +41,52 @@ export function validateMeetingSlot(start: string, end: string, now = new Date()
  *   2. "Check availability" queries the provider,
  *   3. when available, "Book meeting" creates the event,
  *   4. the Meet URL renders from the persisted booking record.
+ *
+ * The `hooks` prop selects the transport: internal conversation endpoints
+ * by default, the customer-scoped endpoints on the external chat page.
+ * Either way the backend enforces conversation scope — the UI never sees
+ * another conversation's slots.
  */
+export interface MeetingHooks {
+  useAvailability: (
+    conversationId: string,
+    params: ConversationAvailabilityQuery | null
+  ) => {
+    data?: { available?: boolean } | undefined;
+    isPending: boolean;
+    isFetching: boolean;
+    isError: boolean;
+    error?: unknown;
+    refetch: () => void;
+  };
+  useBook: (conversationId: string) => {
+    data?: ConversationBooking | null | undefined;
+    isPending: boolean;
+    isError: boolean;
+    error?: unknown;
+    reset: () => void;
+    mutate: (input: BookConversationMeetingInput) => void;
+  };
+}
+
+const defaultMeetingHooks: MeetingHooks = {
+  useAvailability: useConversationAvailabilityQuery,
+  useBook: useBookConversationMeetingMutation,
+};
+
 export function MeetingPanel({
   conversationId,
   schedulable = true,
   schedulableReason = "Meetings cannot be scheduled for this conversation.",
+  hooks = defaultMeetingHooks,
 }: {
   conversationId: string;
   /** False when the conversation status cannot schedule (e.g. abandoned). */
   schedulable?: boolean;
   /** Shown when `schedulable` is false. */
   schedulableReason?: string;
+  /** Transport override for the external customer chat. */
+  hooks?: MeetingHooks;
 }) {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -59,8 +94,8 @@ export function MeetingPanel({
   const [title, setTitle] = useState("");
   const [checkParams, setCheckParams] = useState<ConversationAvailabilityQuery | null>(null);
 
-  const availability = useConversationAvailabilityQuery(conversationId, checkParams);
-  const book = useBookConversationMeetingMutation(conversationId);
+  const availability = hooks.useAvailability(conversationId, checkParams);
+  const book = hooks.useBook(conversationId);
 
   const slotError = validateMeetingSlot(start, end);
   const slotValid = schedulable && slotError === null;

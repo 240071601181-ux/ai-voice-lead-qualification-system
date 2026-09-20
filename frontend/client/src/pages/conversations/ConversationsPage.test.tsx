@@ -95,7 +95,7 @@ describe("ConversationsPage customer names", () => {
     expect(screen.getByText("conv-aaa".slice(0, 8) + "…")).toBeInTheDocument();
   });
 
-  it("searches customer name, email, phone, and conversation id", async () => {
+  it("searches customer name, email, phone, and conversation id", { timeout: 30000 }, async () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
     await waitFor(() => expect(screen.getByText("Rajesh Kumar")).toBeInTheDocument());

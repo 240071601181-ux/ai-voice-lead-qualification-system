@@ -9,6 +9,7 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, INTERNAL_AUTH_SECRET, useInternalAuthSecret } from './helpers/internalAuth';
 import {
   resetCalendarProviderForTests,
   setCalendarProviderForTests
@@ -20,8 +21,37 @@ jest.mock('../database', () => {
   return { pool: mPool, default: mPool };
 });
 
+// Phase 20 — /api/v1/calendar is internal: ADMIN identity for every call.
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({
+      id: 'admin-user-1',
+      email: 'admin@example.com',
+      password_hash: 'hashed-test-only',
+      name: 'Test Admin',
+      role: 'ADMIN',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  };
+});
+
 describe('Calendar sync endpoints', () => {
   const OLD_ENV = process.env;
+
+  let restoreAuth: (() => void) | null = null;
+  beforeAll(() => {
+    restoreAuth = useInternalAuthSecret();
+  });
+  afterAll(() => {
+    restoreAuth?.();
+  });
+
+  const authedGet = (url: string) => request(app).get(url).set('Authorization', bearerFor());
+  const authedPost = (url: string) => request(app).post(url).set('Authorization', bearerFor());
 
   const persisted = (overrides: Record<string, unknown> = {}) => ({
     id: 1,
@@ -37,6 +67,7 @@ describe('Calendar sync endpoints', () => {
     jest.clearAllMocks();
     process.env = {
       ...OLD_ENV,
+      AUTH_JWT_SECRET: INTERNAL_AUTH_SECRET,
       CALENDAR_ENABLED: 'true',
       CALENDAR_PROVIDER: 'mock',
       GOOGLE_CLIENT_ID: 'test-client-id',
@@ -58,7 +89,7 @@ describe('Calendar sync endpoints', () => {
 
   it('returns a null sync state when no sync has ever run', async () => {
     (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
-    const res = await request(app).get('/api/v1/calendar/sync-status');
+    const res = await authedGet('/api/v1/calendar/sync-status');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, data: null });
   });
@@ -70,7 +101,7 @@ describe('Calendar sync endpoints', () => {
       }
       return Promise.resolve({ rows: [] });
     });
-    const res = await request(app).post('/api/v1/calendar/sync').send({});
+    const res = await authedPost('/api/v1/calendar/sync').send({});
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data).toMatchObject({ status: 'success' });
@@ -84,7 +115,7 @@ describe('Calendar sync endpoints', () => {
   });
 
   it('persists a failed state with a safe message when unconfigured', async () => {
-    process.env = { ...OLD_ENV, CALENDAR_ENABLED: 'true', CALENDAR_PROVIDER: 'mock' };
+    process.env = { ...OLD_ENV, AUTH_JWT_SECRET: INTERNAL_AUTH_SECRET, CALENDAR_ENABLED: 'true', CALENDAR_PROVIDER: 'mock' };
     (pool.query as jest.Mock).mockImplementation((sql: string) => {
       if (/INSERT INTO calendar_sync_state/.test(String(sql))) {
         return Promise.resolve({
@@ -93,7 +124,7 @@ describe('Calendar sync endpoints', () => {
       }
       return Promise.resolve({ rows: [] });
     });
-    const res = await request(app).post('/api/v1/calendar/sync').send({});
+    const res = await authedPost('/api/v1/calendar/sync').send({});
     expect(res.status).toBe(502);
     expect(res.body.success).toBe(false);
     expect(res.body.error.message).toContain('Calendar is not configured');
@@ -101,22 +132,26 @@ describe('Calendar sync endpoints', () => {
   });
 
   it('accepts minute-precision datetimes on availability checks', async () => {
-    const res = await request(app)
-      .get('/api/v1/calendar/availability')
-      .query({ start: '2026-09-20T10:00:00+05:30', end: '2026-09-20T10:30:00+05:30' });
+    // Phase 20 — slot floats in the near future: hardcoded dates expire past
+    // validation ("start must be in the future") as the day progresses.
+    const start = new Date(Date.now() + 2 * 3600_000);
+    start.setSeconds(0, 0);
+    const end = new Date(start.getTime() + 30 * 60_000);
+    const res = await authedGet('/api/v1/calendar/availability')
+      .query({ start: start.toISOString(), end: end.toISOString() });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, data: { available: true } });
   });
 
   it('reports truthful diagnostics when disabled (no secrets, connectivity skipped)', async () => {
-    process.env = { ...OLD_ENV, CALENDAR_ENABLED: 'false' };
+    process.env = { ...OLD_ENV, AUTH_JWT_SECRET: INTERNAL_AUTH_SECRET, CALENDAR_ENABLED: 'false' };
     (pool.query as jest.Mock).mockImplementation((sql: string) => {
       if (/FROM calendar_sync_state|FROM calendar_bookings/.test(String(sql))) {
         return Promise.resolve({ rows: [] });
       }
       return Promise.resolve({ rows: [{ '?column?': 1 }] });
     });
-    const res = await request(app).get('/api/v1/calendar/diagnostics');
+    const res = await authedGet('/api/v1/calendar/diagnostics');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.status).toBe('not_configured');
@@ -139,7 +174,7 @@ describe('Calendar sync endpoints', () => {
       }
       return Promise.resolve({ rows: [{ '?column?': 1 }] });
     });
-    const res = await request(app).get('/api/v1/calendar/diagnostics');
+    const res = await authedGet('/api/v1/calendar/diagnostics');
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe('ok');
     expect(res.body.data.checks.map((c: any) => c.status)).toEqual(['ok', 'ok', 'ok', 'ok']);
@@ -150,7 +185,7 @@ describe('Calendar sync endpoints', () => {
 
   it('reports database failure without leaking internals', async () => {
     (pool.query as jest.Mock).mockRejectedValueOnce(new Error('connect failed test-client-secret boom'));
-    const res = await request(app).get('/api/v1/calendar/diagnostics');
+    const res = await authedGet('/api/v1/calendar/diagnostics');
     expect(res.status).toBe(200);
     const byName: Record<string, any> = Object.fromEntries(
       res.body.data.checks.map((c: any) => [c.name, c])

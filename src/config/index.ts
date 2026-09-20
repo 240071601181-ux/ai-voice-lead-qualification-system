@@ -275,6 +275,37 @@ export const getAuthConfig = (): AuthConfig => ({
 
 export const isAuthConfigured = (): boolean => getAuthConfig().jwtSecret.length > 0;
 
+/**
+ * Phase 20 — customer (external chat) access configuration.
+ *
+ * Customers authenticate with opaque per-conversation tokens/sessions, never
+ * internal JWTs. Only hashes persist; the frontend origin builds share URLs.
+ */
+export interface CustomerAccessConfig {
+  /** Lifetime of an issued share link, seconds (default 7 days). */
+  accessTtlSec: number;
+  /** Lifetime of a redeemed chat session, seconds (default 24 hours). */
+  sessionTtlSec: number;
+  /** HttpOnly session cookie name (never localStorage). */
+  sessionCookieName: string;
+  /** Public frontend origin used to build /chat/<token> URLs. */
+  frontendOrigin: string;
+  /** Max redeem attempts per IP per window (brute-force protection). */
+  redeemMaxAttempts: number;
+  /** Redeem rate-limit window in milliseconds. */
+  redeemWindowMs: number;
+}
+
+export const getCustomerAccessConfig = (): CustomerAccessConfig => ({
+  accessTtlSec: intOr(process.env.CUSTOMER_ACCESS_TTL_SEC, 7 * 24 * 3600),
+  sessionTtlSec: intOr(process.env.CUSTOMER_SESSION_TTL_SEC, 24 * 3600),
+  sessionCookieName: process.env.CUSTOMER_SESSION_COOKIE || 'mad_cs',
+  frontendOrigin:
+    (process.env.FRONTEND_ORIGIN || '').trim() || 'http://localhost:3000',
+  redeemMaxAttempts: intOr(process.env.CUSTOMER_REDEEM_MAX_ATTEMPTS, 20),
+  redeemWindowMs: intOr(process.env.CUSTOMER_REDEEM_WINDOW_MS, 60 * 1000),
+});
+
 export interface ChatConfig {
   /** Max persisted messages forwarded to the LLM per turn (history window). */
   maxContextMessages: number;

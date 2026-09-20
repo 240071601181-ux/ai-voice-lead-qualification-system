@@ -217,15 +217,16 @@ describe('Phase 2: Text Conversation Persistence', () => {
     const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
     const sql014 = readFileSync(path.join(migrationsDir, '014_create_text_conversation_tables.sql'), 'utf-8');
 
-    it('should keep the sequence additive (014 through 017)', () => {
+    it('should keep the sequence additive (014 through 018)', () => {
       const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
-      expect(files).toHaveLength(17);
-      expect(files[files.length - 4]).toBe('014_create_text_conversation_tables.sql');
-      expect(files[files.length - 3]).toBe('015_conversation_qualification.sql');
-      expect(files[files.length - 2]).toBe('016_conversation_calendar_bookings.sql');
-      expect(files[files.length - 1]).toBe('017_user_auth_and_conversation_ownership.sql');
+      expect(files).toHaveLength(18);
+      expect(files[files.length - 5]).toBe('014_create_text_conversation_tables.sql');
+      expect(files[files.length - 4]).toBe('015_conversation_qualification.sql');
+      expect(files[files.length - 3]).toBe('016_conversation_calendar_bookings.sql');
+      expect(files[files.length - 2]).toBe('017_user_auth_and_conversation_ownership.sql');
+      expect(files[files.length - 1]).toBe('018_admin_roles_and_customer_access.sql');
       expect(files.map((f) => f.slice(0, 3))).toEqual(
-        Array.from({ length: 17 }, (_, i) => String(i + 1).padStart(3, '0'))
+        Array.from({ length: 18 }, (_, i) => String(i + 1).padStart(3, '0'))
       );
     });
 
@@ -304,6 +305,31 @@ describe('Phase 2: Text Conversation Persistence', () => {
       expect(sql017).not.toMatch(/ALTER TABLE calls/i);
       expect(sql017).not.toMatch(/ALTER TABLE conversation_state/i);
       expect(sql017).not.toMatch(/DROP COLUMN/i);
+    });
+  });
+
+  describe('migration 018 contents (Phase 20)', () => {
+    const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
+    const sql018 = readFileSync(path.join(migrationsDir, '018_admin_roles_and_customer_access.sql'), 'utf-8');
+
+    it('should add internal roles and hashed customer access tables additively', () => {
+      expect(sql018).toMatch(/ADD COLUMN IF NOT EXISTS role/);
+      expect(sql018).toMatch(/IN \('ADMIN', 'OPERATOR'\)/);
+      expect(sql018).toMatch(/CREATE TABLE IF NOT EXISTS customer_access_tokens \(/);
+      expect(sql018).toMatch(/CREATE TABLE IF NOT EXISTS customer_sessions \(/);
+      expect(sql018).toMatch(/token_hash/);
+      expect(sql018).toMatch(/session_hash/);
+      expect(sql018).toMatch(/revoked_at/);
+      expect(sql018).toMatch(/customer_access_tokens_conversation_idx/);
+      expect(sql018).toMatch(/customer_sessions_conversation_idx/);
+    });
+
+    it('should not touch or drop legacy structures', () => {
+      expect(sql018).not.toMatch(/DROP TABLE/i);
+      expect(sql018).not.toMatch(/ALTER TABLE calls/i);
+      expect(sql018).not.toMatch(/ALTER TABLE conversation_state[^s]/i);
+      expect(sql018).not.toMatch(/DROP COLUMN/i);
+      expect(sql018).not.toMatch(/DELETE FROM/i);
     });
   });
 });

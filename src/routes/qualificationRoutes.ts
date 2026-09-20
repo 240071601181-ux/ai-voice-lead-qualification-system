@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { requireAuth } from '../middleware/requireAuth';
+import { requireRole } from '../middleware/requireRole';
 import {
   createQualification,
   getQualificationByLead,
@@ -7,6 +9,9 @@ import {
 } from '../controllers/qualificationController';
 
 const router = Router();
+
+// Phase 20 — internal admin API: authenticated internal users only.
+router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
 
 // Phase 14 — POST / (call-anchored re-run for historical records) stays:
 // the qualifications UI re-run targets call-associated rows. The

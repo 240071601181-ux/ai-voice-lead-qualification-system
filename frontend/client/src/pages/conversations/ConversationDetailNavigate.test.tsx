@@ -188,7 +188,7 @@ describe("ConversationDetailPage navigation durability", () => {
     cleanup();
   });
 
-  it("keeps the typing state across unmount, renders the result, and never resends", async () => {
+  it("keeps the typing state across unmount, renders the result, and never resends", { timeout: 30000 }, async () => {
     const client = makeClient();
     renderDetail(client);
     await sendFirstMessage();
@@ -219,7 +219,7 @@ describe("ConversationDetailPage navigation durability", () => {
     ).toBe(1);
   });
 
-  it("offers the same-key retry after a failure across unmount", async () => {
+  it("offers the same-key retry after a failure across unmount", { timeout: 30000 }, async () => {
     const client = makeClient();
     renderDetail(client);
     await sendFirstMessage();

@@ -11,12 +11,21 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = {
     query: jest.fn()
   };
   return { pool: mPool, default: mPool };
+});
+
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({id:'admin-user-1', email:'admin@example.com', password_hash:'x', name:'Test Admin', role:'ADMIN', status:'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString()})),
+  };
 });
 
 /**
@@ -38,6 +47,19 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+let restoreAuth: (() => void) | null = null;
+beforeAll(() => {
+  restoreAuth = useInternalAuthSecret();
+});
+afterAll(() => {
+  restoreAuth?.();
+});
+
+const authedGet = (url: string) =>
+  request(app).get(url).set('Authorization', bearerFor());
+const authedPost = (url: string) =>
+  request(app).post(url).set('Authorization', bearerFor());
+
 const mockQuery = pool.query as jest.Mock;
 
 const selectable = { rows: [{ '?column?': 1 }] };
@@ -50,7 +72,7 @@ describe('CRM integration API', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
-    const res = await request(app).get('/api/v1/crm/diagnostics');
+    const res = await authedGet('/api/v1/crm/diagnostics');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     const names = res.body.data.checks.map((c: any) => c.name);
@@ -62,19 +84,19 @@ describe('CRM integration API', () => {
   });
 
   it('rejects a sync with no lead or call id', async () => {
-    const res = await request(app).post('/api/v1/crm/sync').send({});
+    const res = await authedPost('/api/v1/crm/sync').send({});
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/leadId or callId/);
   });
 
   it('truthfully reports disabled sync (503, no fake success)', async () => {
-    const res = await request(app).post('/api/v1/crm/sync').send({ leadId: 'lead-123' });
+    const res = await authedPost('/api/v1/crm/sync').send({ leadId: 'lead-123' });
     expect(res.status).toBe(503);
     expect(res.body.success).toBe(false);
   });
 
   it('validates sync history limit', async () => {
-    const res = await request(app).get('/api/v1/crm/syncs?limit=500');
+    const res = await authedGet('/api/v1/crm/syncs?limit=500');
     expect(res.status).toBe(400);
   });
 });
@@ -87,7 +109,7 @@ describe('WhatsApp integration API', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
-    const res = await request(app).get('/api/v1/whatsapp/diagnostics');
+    const res = await authedGet('/api/v1/whatsapp/diagnostics');
     expect(res.status).toBe(200);
     const names = res.body.data.checks.map((c: any) => c.name);
     expect(names).toEqual(
@@ -98,7 +120,7 @@ describe('WhatsApp integration API', () => {
   });
 
   it('validates delivery history limit', async () => {
-    const res = await request(app).get('/api/v1/whatsapp/deliveries?limit=0');
+    const res = await authedGet('/api/v1/whatsapp/deliveries?limit=0');
     expect(res.status).toBe(400);
   });
 });
@@ -111,7 +133,7 @@ describe('n8n integration API', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
-    const res = await request(app).get('/api/v1/n8n/diagnostics');
+    const res = await authedGet('/api/v1/n8n/diagnostics');
     expect(res.status).toBe(200);
     const names = res.body.data.checks.map((c: any) => c.name);
     expect(names).toEqual(
@@ -122,7 +144,7 @@ describe('n8n integration API', () => {
 
   it('lists only configured workflows', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
-    const res = await request(app).get('/api/v1/n8n/workflows');
+    const res = await authedGet('/api/v1/n8n/workflows');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
     for (const w of res.body.data) {
@@ -155,14 +177,14 @@ describe('Calendar bookings inventory API', () => {
       .mockResolvedValueOnce({ rows: [{ count: 1 }] })
       .mockResolvedValueOnce({ rows: [{ count: 0 }] });
 
-    const res = await request(app).get('/api/v1/calendar/bookings?page=1&limit=20');
+    const res = await authedGet('/api/v1/calendar/bookings?page=1&limit=20');
     expect(res.status).toBe(200);
     expect(res.body.data.total).toBe(1);
     expect(res.body.data.bookings[0].id).toBe('booking-1');
   });
 
   it('rejects invalid pagination', async () => {
-    const res = await request(app).get('/api/v1/calendar/bookings?page=-1');
+    const res = await authedGet('/api/v1/calendar/bookings?page=-1');
     expect(res.status).toBe(400);
   });
 
@@ -173,8 +195,7 @@ describe('Calendar bookings inventory API', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
-    const res = await request(app)
-      .get('/api/v1/crm/diagnostics')
+    const res = await authedGet('/api/v1/crm/diagnostics')
       .set('Origin', 'http://localhost:3001');
     expect(res.status).toBe(200);
     expect(res.headers['access-control-allow-origin']).toBe('http://localhost:3001');

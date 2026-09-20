@@ -154,6 +154,41 @@ export function getConversationQualification(id: string): Promise<Qualification>
   );
 }
 
+export interface CustomerAccessLink {
+  url: string;
+  expiresAt: string;
+}
+
+export interface CustomerAccessRevocation {
+  revokedTokens: number;
+  revokedSessions: number;
+}
+
+/**
+ * Phase 20 — issue a single-conversation customer share link (internal
+ * owner only). The raw token is returned once inside the URL; the UI shows
+ * it for copying and never stores it.
+ */
+export function createCustomerAccess(id: string): Promise<CustomerAccessLink> {
+  return authed((headers) =>
+    httpClient.post<CustomerAccessLink>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/customer-access`,
+      {},
+      { headers }
+    )
+  );
+}
+
+export function revokeCustomerAccess(id: string): Promise<CustomerAccessRevocation> {
+  return authed((headers) =>
+    httpClient.post<CustomerAccessRevocation>(
+      `/api/v1/conversations/${encodeURIComponent(id)}/customer-access/revoke`,
+      {},
+      { headers }
+    )
+  );
+}
+
 export function getConversationAvailability(
   id: string,
   query: ConversationAvailabilityQuery

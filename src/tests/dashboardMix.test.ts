@@ -8,16 +8,45 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = { query: jest.fn() };
   return { pool: mPool, default: mPool };
 });
 
+// Phase 20 — /api/v1/dashboard is internal: ADMIN identity for every call.
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({
+      id: 'admin-user-1',
+      email: 'admin@example.com',
+      password_hash: 'hashed-test-only',
+      name: 'Test Admin',
+      role: 'ADMIN',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  };
+});
+
 describe('dashboard qualification mix', () => {
+  let restoreAuth: (() => void) | null = null;
+  beforeAll(() => {
+    restoreAuth = useInternalAuthSecret();
+  });
+  afterAll(() => {
+    restoreAuth?.();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
+
+  const authedGet = (url: string) => request(app).get(url).set('Authorization', bearerFor());
 
   it('returns real tier counts and ignores unknown tiers', async () => {
     (pool.query as jest.Mock).mockResolvedValueOnce({
@@ -28,7 +57,7 @@ describe('dashboard qualification mix', () => {
         { tier: 'MYSTERY', n: 99 },
       ],
     });
-    const res = await request(app).get('/api/v1/dashboard/qualification-mix');
+    const res = await authedGet('/api/v1/dashboard/qualification-mix');
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ total: 10, hot: 2, warm: 5, cold: 3 });
     expect(pool.query).toHaveBeenCalledWith(
@@ -38,7 +67,7 @@ describe('dashboard qualification mix', () => {
 
   it('returns zeros on an empty qualifications table', async () => {
     (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
-    const res = await request(app).get('/api/v1/dashboard/qualification-mix');
+    const res = await authedGet('/api/v1/dashboard/qualification-mix');
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ total: 0, hot: 0, warm: 0, cold: 0 });
   });

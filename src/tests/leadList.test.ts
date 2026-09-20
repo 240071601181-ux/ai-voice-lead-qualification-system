@@ -8,10 +8,30 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = { query: jest.fn() };
   return { pool: mPool, default: mPool };
+});
+
+// Phase 20 — /api/v1/leads is internal: every request carries an ADMIN
+// identity (userRepository is stubbed so pool-call assertions stay exact).
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({
+      id: 'admin-user-1',
+      email: 'admin@example.com',
+      password_hash: 'hashed-test-only',
+      name: 'Test Admin',
+      role: 'ADMIN',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  };
 });
 
 describe('GET /api/v1/leads', () => {
@@ -42,9 +62,20 @@ describe('GET /api/v1/leads', () => {
     jest.clearAllMocks();
   });
 
+  let restoreAuth: (() => void) | null = null;
+  beforeAll(() => {
+    restoreAuth = useInternalAuthSecret();
+  });
+  afterAll(() => {
+    restoreAuth?.();
+  });
+
+  const authedGet = (url: string) =>
+    request(app).get(url).set('Authorization', bearerFor());
+
   it('returns paginated leads with total by default (page 1, limit 20)', async () => {
     mockListReads([lead], 1);
-    const res = await request(app).get('/api/v1/leads');
+    const res = await authedGet('/api/v1/leads');
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -59,7 +90,7 @@ describe('GET /api/v1/leads', () => {
 
   it('honors explicit page/limit via LIMIT/OFFSET', async () => {
     mockListReads([lead], 42);
-    const res = await request(app).get('/api/v1/leads').query({ page: '3', limit: '5' });
+    const res = await authedGet('/api/v1/leads').query({ page: '3', limit: '5' });
 
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ total: 42, page: 3, limit: 5 });
@@ -68,7 +99,7 @@ describe('GET /api/v1/leads', () => {
 
   it('applies search as ILIKE on the select and count queries', async () => {
     mockListReads([lead], 1);
-    const res = await request(app).get('/api/v1/leads').query({ search: 'arjun' });
+    const res = await authedGet('/api/v1/leads').query({ search: 'arjun' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.total).toBe(1);
@@ -80,7 +111,7 @@ describe('GET /api/v1/leads', () => {
 
   it('rejects invalid pagination params with 400', async () => {
     for (const query of [{ page: '0' }, { page: 'abc' }, { limit: '0' }, { limit: '101' }, { limit: 'abc' }]) {
-      const res = await request(app).get('/api/v1/leads').query(query);
+      const res = await authedGet('/api/v1/leads').query(query);
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
     }
@@ -89,7 +120,7 @@ describe('GET /api/v1/leads', () => {
 
   it('returns an empty list with total 0 when nothing matches', async () => {
     mockListReads([], 0);
-    const res = await request(app).get('/api/v1/leads').query({ search: 'no-such-lead' });
+    const res = await authedGet('/api/v1/leads').query({ search: 'no-such-lead' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);

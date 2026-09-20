@@ -8,12 +8,31 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = {
     query: jest.fn()
   };
   return { pool: mPool, default: mPool };
+});
+
+// Phase 20 — /api/v1/settings is internal (reads: any role, PATCH: ADMIN).
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({
+      id: 'admin-user-1',
+      email: 'admin@example.com',
+      password_hash: 'hashed-test-only',
+      name: 'Test Admin',
+      role: 'ADMIN',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  };
 });
 
 const mockQuery = pool.query as jest.Mock;
@@ -36,10 +55,21 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+let restoreAuth: (() => void) | null = null;
+beforeAll(() => {
+  restoreAuth = useInternalAuthSecret();
+});
+afterAll(() => {
+  restoreAuth?.();
+});
+
+const authedGet = (url: string) => request(app).get(url).set('Authorization', bearerFor());
+const authedPatch = (url: string) => request(app).patch(url).set('Authorization', bearerFor());
+
 describe('Workspace settings API', () => {
   it('returns the persisted settings row', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [defaultRow] });
-    const res = await request(app).get('/api/v1/settings');
+    const res = await authedGet('/api/v1/settings');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.workspace_name).toBe('Acme Cargo');
@@ -50,7 +80,7 @@ describe('Workspace settings API', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [defaultRow] });
-    const res = await request(app).get('/api/v1/settings');
+    const res = await authedGet('/api/v1/settings');
     expect(res.status).toBe(200);
     expect(res.body.data.workspace_name).toBe('Acme Cargo');
   });
@@ -58,22 +88,20 @@ describe('Workspace settings API', () => {
   it('persists a workspace name change (PATCH round-trip)', async () => {
     const updated = { ...defaultRow, workspace_name: 'MadLead Logistics' };
     mockQuery.mockResolvedValueOnce({ rows: [updated] });
-    const patch = await request(app)
-      .patch('/api/v1/settings')
+    const patch = await authedPatch('/api/v1/settings')
       .send({ workspace_name: 'MadLead Logistics' });
     expect(patch.status).toBe(200);
     expect(patch.body.data.workspace_name).toBe('MadLead Logistics');
 
     mockQuery.mockResolvedValueOnce({ rows: [updated] });
-    const reread = await request(app).get('/api/v1/settings');
+    const reread = await authedGet('/api/v1/settings');
     expect(reread.body.data.workspace_name).toBe('MadLead Logistics');
   });
 
   it('persists notification toggles', async () => {
     const updated = { ...defaultRow, notify_daily_digest: true, notify_hot_lead: false };
     mockQuery.mockResolvedValueOnce({ rows: [updated] });
-    const patch = await request(app)
-      .patch('/api/v1/settings')
+    const patch = await authedPatch('/api/v1/settings')
       .send({ notify_daily_digest: true, notify_hot_lead: false });
     expect(patch.status).toBe(200);
     expect(patch.body.data.notify_daily_digest).toBe(true);
@@ -93,7 +121,7 @@ describe('Workspace settings API', () => {
       { body: { theme: 'dark' }, message: /Unknown setting/ }
     ];
     for (const c of cases) {
-      const res = await request(app).patch('/api/v1/settings').send(c.body);
+      const res = await authedPatch('/api/v1/settings').send(c.body);
       expect(res.status).toBe(400);
       expect(res.body.error.message).toMatch(c.message);
     }
@@ -103,6 +131,7 @@ describe('Workspace settings API', () => {
     mockQuery.mockResolvedValueOnce({ rows: [defaultRow] });
     const res = await request(app)
       .get('/api/v1/settings')
+      .set('Authorization', bearerFor())
       .set('Origin', 'http://localhost:3001');
     expect(res.status).toBe(200);
     expect(res.headers['access-control-allow-origin']).toBe('http://localhost:3001');

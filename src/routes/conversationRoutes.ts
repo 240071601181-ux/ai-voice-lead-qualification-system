@@ -1,8 +1,13 @@
 import { Router } from 'express';
+import { requireRole, requireInternalUser } from '../middleware/requireRole';
 import {
   resolveConversationIdentity,
   requireOwnedConversation,
 } from '../middleware/conversationIdentity';
+import {
+  postCustomerAccessHandler,
+  postRevokeCustomerAccessHandler,
+} from '../controllers/customerController';
 import {
   generalConversationRateLimit,
   messageSendRateLimit,
@@ -54,5 +59,21 @@ router.get('/:id/calendar/availability', requireOwnedConversation, getConversati
 router.post('/:id/calendar/book', requireOwnedConversation, postConversationBookingHandler);
 // Phase 9: structured logistics state for the conversation UI panel.
 router.get('/:id/state', requireOwnedConversation, getConversationStateHandler);
+// Phase 20 — customer share links (internal owner only: user identity +
+// internal role + per-conversation ownership; legacy dev tokens fail here).
+router.post(
+  '/:id/customer-access',
+  requireInternalUser,
+  requireRole('ADMIN', 'OPERATOR'),
+  requireOwnedConversation,
+  postCustomerAccessHandler
+);
+router.post(
+  '/:id/customer-access/revoke',
+  requireInternalUser,
+  requireRole('ADMIN', 'OPERATOR'),
+  requireOwnedConversation,
+  postRevokeCustomerAccessHandler
+);
 
 export default router;

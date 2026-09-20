@@ -9,6 +9,7 @@
 import request from 'supertest';
 import app from '../app';
 import { pool } from '../database';
+import { bearerFor, useInternalAuthSecret } from './helpers/internalAuth';
 
 jest.mock('../database', () => {
   const mPool = {
@@ -17,7 +18,35 @@ jest.mock('../database', () => {
   return { pool: mPool, default: mPool };
 });
 
+jest.mock('../repositories/userRepository', () => {
+  const actual = jest.requireActual('../repositories/userRepository');
+  return {
+    ...actual,
+    findUserById: jest.fn(async () => ({
+      id: 'admin-user-1',
+      email: 'admin@example.com',
+      password_hash: 'x',
+      name: 'Test Admin',
+      role: 'ADMIN',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  };
+});
+
 const mockQuery = pool.query as jest.Mock;
+
+let restoreAuth: (() => void) | null = null;
+beforeAll(() => {
+  restoreAuth = useInternalAuthSecret();
+});
+afterAll(() => {
+  restoreAuth?.();
+});
+
+const authedGet = (url: string) =>
+  request(app).get(url).set('Authorization', bearerFor());
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -40,7 +69,7 @@ describe('Knowledge inventory API', () => {
       })
       .mockResolvedValueOnce({ rows: [{ count: 1 }] });
 
-    const res = await request(app).get('/api/v1/knowledge/documents?page=1&limit=20');
+    const res = await authedGet('/api/v1/knowledge/documents?page=1&limit=20');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.total).toBe(1);
@@ -49,10 +78,10 @@ describe('Knowledge inventory API', () => {
   });
 
   it('rejects invalid pagination', async () => {
-    const badPage = await request(app).get('/api/v1/knowledge/documents?page=0');
+    const badPage = await authedGet('/api/v1/knowledge/documents?page=0');
     expect(badPage.status).toBe(400);
 
-    const badLimit = await request(app).get('/api/v1/knowledge/documents?limit=500');
+    const badLimit = await authedGet('/api/v1/knowledge/documents?limit=500');
     expect(badLimit.status).toBe(400);
   });
 
@@ -79,7 +108,7 @@ describe('Knowledge inventory API', () => {
         ]
       });
 
-    const res = await request(app).get('/api/v1/knowledge/documents/doc-1');
+    const res = await authedGet('/api/v1/knowledge/documents/doc-1');
     expect(res.status).toBe(200);
     expect(res.body.data.document.title).toBe('Real tariff sheet');
     expect(res.body.data.chunks[0].chunk_text).toBe('Real stored chunk text');
@@ -87,7 +116,7 @@ describe('Knowledge inventory API', () => {
 
   it('returns 404 for an unknown document', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    const res = await request(app).get('/api/v1/knowledge/documents/missing');
+    const res = await authedGet('/api/v1/knowledge/documents/missing');
     expect(res.status).toBe(404);
   });
 });
@@ -101,7 +130,7 @@ describe('Knowledge diagnostics API', () => {
       .mockResolvedValueOnce({ rows: [{ count: 2 }] })
       .mockResolvedValueOnce({ rows: [{ count: 7 }] });
 
-    const res = await request(app).get('/api/v1/knowledge/diagnostics');
+    const res = await authedGet('/api/v1/knowledge/diagnostics');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.status).toBe('ok');
@@ -118,8 +147,7 @@ describe('Knowledge diagnostics API', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ count: 0 }] });
 
-    const res = await request(app)
-      .get('/api/v1/knowledge/documents')
+    const res = await authedGet('/api/v1/knowledge/documents')
       .set('Origin', 'http://localhost:3001');
     expect(res.status).toBe(200);
     expect(res.headers['access-control-allow-origin']).toBe('http://localhost:3001');
