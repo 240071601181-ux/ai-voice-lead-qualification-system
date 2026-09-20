@@ -13,6 +13,8 @@ import {
 } from '../agent/fallbackResponse';
 import { getChatMaxContextMessages, getChatMaxMessageLength } from '../config';
 import { extractAndPersistTextState } from '../services/conversationStateService';
+import { findMemoryAnswers } from '../agent/memoryAnswers';
+import { normalizeIdempotencyKey, runIdempotent } from '../services/messageIdempotency';
 import {
   getQualificationByConversationId,
   maybeAutoQualifyConversation,
@@ -249,11 +251,20 @@ export const postConversationMessageHandler = async (
       });
     }
 
-    const userMessage = await conversationMessageService.appendMessage({
-      conversationId: conversation.id,
-      role: 'user',
-      content,
-    });
+    // Idempotency: one logical submit (one Idempotency-Key) persists exactly
+    // one user + one assistant message, even across double POSTs or
+    // timeout-then-retry. Keys are scoped per conversation; distinct keys
+    // always produce distinct messages (identical texts are never merged).
+    // Requests without a key flow through unprotected, as before.
+    const rawKey = normalizeIdempotencyKey(req.headers['idempotency-key']);
+    const scopedKey = rawKey ? `${conversation.id}:${rawKey}` : null;
+
+    const processMessageTurn = async () => {
+      const userMessage = await conversationMessageService.appendMessage({
+        conversationId: conversation.id,
+        role: 'user',
+        content,
+      });
 
     // Phase 4: text-safe state extraction BEFORE the LLM turn, so the current
     // turn's structured slots are visible in CURRENT CONVERSATION STATE.
@@ -276,6 +287,35 @@ export const postConversationMessageHandler = async (
     // Multi-turn history window: chronological, bounded by
     // CHAT_MAX_CONTEXT_MESSAGES. Older persisted rows are retained in the
     // database; only the LLM input is truncated (token safety).
+    // Deterministic memory answers: a message composed only of factual
+    // state questions with known values is answered directly from the
+    // freshly extracted state — no LLM turn, no RAG, exactly the requested
+    // fields. Anything else (unknown fields, mixed content, summaries)
+    // flows through the normal turn below.
+    let memoryContent: string | null = null;
+    try {
+      const freshState = await findConversationStateByConversationId(conversation.id);
+      const lines = findMemoryAnswers(content, freshState as any);
+      if (lines) memoryContent = lines.join('\n');
+    } catch (err: any) {
+      logger.error('Memory-answer state lookup failed; continuing with LLM turn', {
+        conversationId: conversation.id,
+        error: err?.message,
+      });
+    }
+    if (memoryContent !== null) {
+      const assistantMessage = await conversationMessageService.appendMessage({
+        conversationId: conversation.id,
+        role: 'assistant',
+        content: memoryContent,
+        metadata: { memoryAnswer: true },
+      });
+      logger.info('Conversation message answered from memory (no LLM turn)', {
+        conversationId: conversation.id,
+        leadId: conversation.lead_id ?? null,
+      });
+      return { conversation, userMessage, assistantMessage, qualification: null };
+    }
     const contextLimit = getChatMaxContextMessages();
     const history = await conversationMessageService.getRecent(conversation.id, contextLimit);
 
@@ -384,10 +424,13 @@ export const postConversationMessageHandler = async (
       );
     }
 
-    return res.status(201).json({
-      success: true,
-      data: { conversation, userMessage, assistantMessage, qualification },
-    });
+      return { conversation, userMessage, assistantMessage, qualification };
+    };
+
+    const outcome = scopedKey
+      ? await runIdempotent(scopedKey, processMessageTurn)
+      : { result: await processMessageTurn(), replayed: false };
+    return res.status(201).json({ success: true, data: outcome.result });
   } catch (err) {
     return next(err);
   }

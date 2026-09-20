@@ -280,3 +280,19 @@ Urgency, Booking Intent).
   /api/v1/dashboard/qualification-mix` (SQL tier counts) with a proper
   empty state; metric cards show live list totals only; no trend
   percentages. See `docs/dashboard-analytics.md`.
+
+## Single-submit + memory answers (bug-fix pass)
+
+- One composer submit produces exactly one `POST
+  /api/v1/conversations/:id/messages`: the composer blocks same-tick
+  double submits (sync ref guard in `AIChatBox` and the page handler),
+  mutations never auto-retry, and every submit carries an `Idempotency-Key`
+  header (fresh UUID; explicit retries reuse the failed key). The backend
+  replays the originally persisted rows for a repeated key and never merges
+  two distinct keys — identical texts stay distinct. Failed turns are not
+  cached, so a genuine retry reprocesses.
+- Factual state questions ("What is my name?") with known values are
+  answered deterministically from conversation state — exactly the requested
+  field, no LLM turn, no RAG. Unknown fields, mixed content, and summaries
+  use the normal turn. Memory-classified turns bypass RAG (scoring and
+  thresholds unchanged).

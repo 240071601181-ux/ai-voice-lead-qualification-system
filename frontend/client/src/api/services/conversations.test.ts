@@ -155,6 +155,87 @@ describe("conversations API service", () => {
     expect(JSON.parse(String(spy.mock.calls[1][1].body))).toEqual({ content: "Hi" });
   });
 
+  it("sends the idempotency key when provided, and omits it otherwise", async () => {
+    const spy = mockFetchOnce(201, {
+      success: true,
+      data: {
+        conversation: { id: "conv-1" },
+        userMessage: { id: "m-1", role: "user", content: "Hi" },
+        assistantMessage: { id: "m-2", role: "assistant", content: "Hello" },
+        qualification: null,
+      },
+    });
+    await loginAs(spy);
+    await sendConversationMessage("conv-1", "Hi", "key-123");
+    expect(spy.mock.calls[1][1].headers["Idempotency-Key"]).toBe("key-123");
+    const spy2 = mockFetchOnce(201, {
+      success: true,
+      data: {
+        conversation: { id: "conv-1" },
+        userMessage: { id: "m-3", role: "user", content: "Hi" },
+        assistantMessage: { id: "m-4", role: "assistant", content: "Hello" },
+        qualification: null,
+      },
+    });
+    await sendConversationMessage("conv-1", "Hi");
+    expect(spy2.mock.calls[0][1].headers["Idempotency-Key"]).toBeUndefined();
+  });
+
+  it("sends Tamil Unicode byte-exact as JSON with application/json", async () => {
+    const spy = mockFetchOnce(201, {
+      success: true,
+      data: {
+        conversation: { id: "conv-1" },
+        userMessage: { id: "m-1", role: "user", content: "வணக்கம்" },
+        assistantMessage: { id: "m-2", role: "assistant", content: "வணக்கம்!" },
+        qualification: null,
+      },
+    });
+    await loginAs(spy);
+    await sendConversationMessage("conv-1", "வணக்கம்");
+    const sent = spy.mock.calls[1][1];
+    expect(sent.headers["Content-Type"]).toBe("application/json");
+    const body = JSON.parse(String(sent.body));
+    expect(body).toEqual({ content: "வணக்கம்" });
+    expect(Array.from(body.content)).toEqual(Array.from("வணக்கம்"));
+  });
+
+  it("waits up to 180s for slow model turns before timing out", async () => {
+    vi.useFakeTimers();
+    try {
+      const loginSpy = mockFetchOnce(200, loginPayload());
+      await loginAs(loginSpy);
+      // A model turn that never answers: the client must keep waiting past
+      // the old 15s default and only abort at the 180s send budget.
+      const hangingFetch = vi.fn(
+        (_url: unknown, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError"))
+            );
+          })
+      );
+      vi.stubGlobal("fetch", hangingFetch);
+      const pending = sendConversationMessage("conv-1", "வணக்கம்");
+      // Still waiting at 179s: no timeout yet.
+      await vi.advanceTimersByTimeAsync(179_000);
+      let settled: unknown = null;
+      void pending.then(
+        (v) => { settled = { ok: v }; },
+        (e) => { settled = { err: e }; }
+      );
+      await Promise.resolve();
+      expect(settled).toBeNull();
+      // At 180s the budget fires and surfaces a user-safe timeout.
+      await vi.advanceTimersByTimeAsync(1_000);
+      const error = await pending.catch((e) => e);
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).kind).toBe("timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("fetches detail, messages, state, and qualification by id", async () => {
     const spy = mockFetchOnce(200, { success: true, data: { conversation: { id: "conv-1" } } });
     await loginAs(spy);

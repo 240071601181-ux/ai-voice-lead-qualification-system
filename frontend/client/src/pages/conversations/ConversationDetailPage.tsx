@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { AlertTriangle, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { AIChatBox } from "@/components/AIChatBox";
@@ -231,6 +231,17 @@ function ConversationDetailPage() {
   // fallback for the header without an extra endpoint.
   const headerState = useConversationStateQuery(id);
   const send = useSendConversationMessageMutation(id ?? "");
+  // Synchronous in-flight guard: props (send.isPending) update only after a
+  // render, so a rapid double Enter/click in the same tick would otherwise
+  // fire two POSTs. The ref flips synchronously inside the handler.
+  const sendInFlight = useRef(false);
+  // Idempotency key of the last failed submit: an explicit retry reuses it
+  // so a timeout-then-retry replays the original rows instead of doubling
+  // them. Fresh submits always mint a new key (identical texts stay distinct).
+  const failedSendKey = useRef<string | null>(null);
+  // The failed text itself: the composer clears on submit, so the page keeps
+  // a copy to power the explicit Retry (the old "kept above" note was false).
+  const [failedContent, setFailedContent] = useState<string | null>(null);
 
   const conversation = detail.data?.conversation ?? null;
   const lead = detail.data?.lead ?? null;
@@ -243,6 +254,7 @@ function ConversationDetailPage() {
   const visible = useMemo(
     () =>
       toVisibleMessages(messages.data?.messages ?? []).map((m) => ({
+        id: m.id,
         role: m.role,
         content: m.content,
         timestamp: formatMessageTime(m.created_at),
@@ -250,17 +262,37 @@ function ConversationDetailPage() {
     [messages.data]
   );
 
-  const handleSend = (content: string) => {
+  const handleSend = (content: string, idempotencyKey?: string) => {
+    if (sendInFlight.current || send.isPending) return;
+    sendInFlight.current = true;
     setSendError(null);
     setSendUnauthorized(false);
-    send.mutate(content, {
-      onError: (error) => {
-        // Session auth refreshes once-and-retries inside the service; a
-        // surviving 401 means signed-out — offer Sign in, never a token modal.
-        setSendUnauthorized(error instanceof ApiError && error.kind === "unauthorized");
-        setSendError(conversationErrorCopy(error));
-      },
-    });
+    const key = idempotencyKey ?? (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+    send.mutate(
+      { content, idempotencyKey: key },
+      {
+        onSuccess: () => {
+          failedSendKey.current = null;
+          setFailedContent(null);
+        },
+        onError: (error) => {
+          // Session auth refreshes once-and-retries inside the service; a
+          // surviving 401 means signed-out — offer Sign in, never a token modal.
+          setSendUnauthorized(error instanceof ApiError && error.kind === "unauthorized");
+          setSendError(conversationErrorCopy(error));
+          // Keep the key so the explicit Retry below replays, not duplicates.
+          failedSendKey.current = key;
+          setFailedContent(content);
+        },
+        onSettled: () => {
+          sendInFlight.current = false;
+        },
+      }
+    );
+  };
+
+  const handleRetrySend = (content: string) => {
+    handleSend(content, failedSendKey.current ?? undefined);
   };
 
   if (!id) {
@@ -350,9 +382,15 @@ function ConversationDetailPage() {
                     <button className="link-btn" onClick={() => navigate("/login")}>
                       Sign in
                     </button>
-                  ) : (
-                    <span className="panel-note">Your text is kept above — resend when ready.</span>
-                  )}
+                  ) : failedContent ? (
+                    <button
+                      className="link-btn"
+                      disabled={send.isPending}
+                      onClick={() => handleRetrySend(failedContent)}
+                    >
+                      {send.isPending ? "Retrying…" : "Retry send"}
+                    </button>
+                  ) : null}
                 </p>
               ) : null}
               {shouldShowComposerDisabledNote(status) ? (

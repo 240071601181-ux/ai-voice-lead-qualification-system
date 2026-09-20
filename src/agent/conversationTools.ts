@@ -7,6 +7,7 @@ import {
 } from '../services/calendar/calendarBookingService';
 import {
   TEXT_STATE_FIELDS,
+  TextStateUpdate,
   validateTextStateUpdate,
 } from './textStateExtraction';
 import {
@@ -138,13 +139,73 @@ const stateSummary = (state: Record<string, unknown> | null): string => {
 };
 
 /**
+ * Consonant skeleton for Tamil/Devanagari grounding: strips dependent vowel
+ * signs and the pulli/virama so inflected forms still match ("தாம்பரமாக"
+ * grounds "தாம்பரம்"). Latin text passes through lowercased only.
+ */
+const SKELETON_MARKS = new RegExp(
+  '[\\u093E-\\u094D\\u0955-\\u0957\\u0BBE-\\u0BC2\\u0BC6-\\u0BC8\\u0BCA-\\u0BCD\\u0BD7]',
+  'g'
+);
+const skeleton = (s: string): string => s.toLowerCase().replace(SKELETON_MARKS, '');
+
+const isGrounded = (incoming: string, lowerUser: string): boolean => {
+  const needle = incoming.trim().toLowerCase();
+  if (needle.length === 0) return false;
+  if (lowerUser.includes(needle)) return true;
+  const sk = skeleton(needle);
+  return sk.length >= 4 && skeleton(lowerUser).includes(sk);
+};
+
+/**
+ * Echo-guard filter for tool-supplied state updates (see
+ * executeUpdateConversationStateText). Returns the writable subset plus
+ * the kept field names. Pure: no I/O, English-neutral.
+ */
+export const groundedUpdate = (
+  sanitized: TextStateUpdate,
+  existing: Record<string, unknown>,
+  currentUserMessage?: string
+): { updates: TextStateUpdate; kept: string[] } => {
+  const updates: Record<string, unknown> = {};
+  const kept: string[] = [];
+  const hasUserText = typeof currentUserMessage === 'string' && currentUserMessage.length > 0;
+  const lowerUser = hasUserText ? (currentUserMessage as string).toLowerCase() : '';
+  for (const [field, incoming] of Object.entries(sanitized)) {
+    if (typeof incoming === 'string' && /[^\u0000-\u007F]/.test(incoming)) {
+      const current = existing[field];
+      const known =
+        typeof current === 'string' ? current.trim() : typeof current === 'number' ? String(current) : '';
+      const changed =
+        known.length > 0 && incoming.trim().toLowerCase() !== known.toLowerCase();
+      if (changed && hasUserText && !isGrounded(incoming, lowerUser)) {
+        kept.push(field);
+        continue;
+      }
+    }
+    updates[field] = incoming;
+  }
+  return { updates: updates as TextStateUpdate, kept };
+};
+
+/**
  * Text adaptation of the state-update tool. Writes to `conversation_states`
  * keyed by the trusted conversationId with deterministic merge semantics:
  * unknown values never erase known fields, unrelated fields are preserved.
+ *
+ * Multilingual echo guard (`currentUserMessage`): small local models
+ * regurgitate already-recorded Tamil values through the tool garbled
+ * (observed live: சந்தோஷ் → ஶல்ழிற on a turn that never mentioned the
+ * name). A non-ASCII incoming value that OVERWRITES a known value must be
+ * grounded in the current user message (case-insensitive); otherwise the
+ * existing value is kept and the field is reported, never persisted.
+ * ASCII overwrites, first-time writes, and calls without a user message
+ * (unit/legacy callers) are never gated — the English path is untouched.
  */
 export const executeUpdateConversationStateText = async (
   ctx: TrustedConversationContext,
-  rawArgs: unknown
+  rawArgs: unknown,
+  currentUserMessage?: string
 ): Promise<ToolResult> => {
   const args = parseConversationToolArguments(rawArgs);
   if (!args) {
@@ -197,7 +258,24 @@ export const executeUpdateConversationStateText = async (
         lead_id: ctx.leadId ?? null,
       });
     }
-    const persisted = await updateConversationStateRecord(ctx.conversationId, validated.sanitized);
+    // Echo guard: drop non-ASCII overwrites of known values that the
+    // current user message never stated. Numbers and first-time writes
+    // always pass; without a user message the gate stays off.
+    const grounded = groundedUpdate(
+      validated.sanitized,
+      (existing ?? {}) as Record<string, unknown>,
+      currentUserMessage
+    );
+    if (Object.keys(grounded.updates).length === 0) {
+      return {
+        success: false,
+        errors: [
+          `No grounded state fields supplied (kept existing: ${grounded.kept.join(', ') || 'none'}). ` +
+            'Only save details stated in the current user message.',
+        ],
+      };
+    }
+    const persisted = await updateConversationStateRecord(ctx.conversationId, grounded.updates);
     if (!persisted) {
       return { success: false, errors: ['Conversation state could not be saved'] };
     }
@@ -205,7 +283,13 @@ export const executeUpdateConversationStateText = async (
       conversationId: ctx.conversationId,
       leadId: ctx.leadId ?? null,
     });
-    return { success: true, message: 'Conversation state updated successfully' };
+    return {
+      success: true,
+      message:
+        grounded.kept.length > 0
+          ? `Conversation state updated successfully (already-recorded values kept: ${grounded.kept.join(', ')})`
+          : 'Conversation state updated successfully',
+    };
   } catch (err) {
     logger.error('Text tool updateConversationState failed', {
       conversationId: ctx.conversationId,
@@ -580,7 +664,8 @@ export interface DispatchedToolOutcome {
 export const dispatchConversationTool = async (
   ctx: TrustedConversationContext,
   name: unknown,
-  rawArgs: unknown
+  rawArgs: unknown,
+  currentUserMessage?: string
 ): Promise<DispatchedToolOutcome> => {
   const startedAt = Date.now();
   const finish = (resultText: string, success: boolean): DispatchedToolOutcome => {
@@ -604,7 +689,7 @@ export const dispatchConversationTool = async (
   try {
     let result: ToolResult;
     if (name === 'updateConversationState') {
-      result = await executeUpdateConversationStateText(ctx, rawArgs);
+      result = await executeUpdateConversationStateText(ctx, rawArgs, currentUserMessage);
     } else if (name === 'updateLeadInformation') {
       result = await executeUpdateLeadInformationText(ctx, rawArgs);
     } else if (name === 'checkCalendarAvailability') {

@@ -53,8 +53,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
   }
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+  // Idempotency-Key: the frontend sends it with POST /messages for safe
+  // duplicate-proof submission. Authorization + Content-Type unchanged.
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key');
   // Required now that the frontend sends its session with API requests
   // (fetch credentials: "include"). Origin stays allowlisted (no wildcard).
   res.header('Vary', 'Origin');

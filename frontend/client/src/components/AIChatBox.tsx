@@ -15,6 +15,8 @@ export type Message = {
   content: string;
   /** Optional pre-formatted timestamp rendered under the bubble. */
   timestamp?: string;
+  /** Persisted id — used as the React key so re-sorts never collide. */
+  id?: string;
 };
 
 export type AIChatBoxProps = {
@@ -96,11 +98,12 @@ export type AIChatBoxProps = {
  * return (
  *   <AIChatBox
  *     messages={messages.map((m) => ({
+ *       id: m.id,
  *       role: m.role,
  *       content: m.content,
  *       timestamp: formatMessageTime(m.created_at),
  *     }))}
- *     onSendMessage={(content) => send.mutate(content)}
+ *     onSendMessage={(content) => send.mutate({ content })}
  *     isLoading={send.isPending}
  *   />
  * );
@@ -121,6 +124,13 @@ export function AIChatBox({
   const [input, setInput] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Synchronous double-submit guard: the isLoading prop flips only after
+  // the parent re-renders, so two Enters in the same tick would otherwise
+  // both pass the check below. The ref flips synchronously instead.
+  const submitInFlight = useRef(false);
+  useEffect(() => {
+    if (!isLoading) submitInFlight.current = false;
+  }, [isLoading]);
 
   // Filter out system messages
   const displayMessages = messages.filter((msg) => msg.role !== "system");
@@ -152,7 +162,8 @@ export function AIChatBox({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedInput = input.trim();
-    if (!trimmedInput || isLoading || disabled) return;
+    if (!trimmedInput || isLoading || disabled || submitInFlight.current) return;
+    submitInFlight.current = true;
 
     onSendMessage(trimmedInput);
     setInput("");
@@ -212,7 +223,7 @@ export function AIChatBox({
               {displayMessages.map((message, index) => {
                 return (
                   <div
-                    key={index}
+                    key={message.id ?? `msg-${index}`}
                     className={cn(
                       "flex gap-3 min-w-0",
                       message.role === "user"

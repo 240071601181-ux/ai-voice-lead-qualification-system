@@ -83,13 +83,25 @@ export function getConversationMessages(
 
 export function sendConversationMessage(
   id: string,
-  content: string
+  content: string,
+  idempotencyKey?: string
 ): Promise<SendConversationMessageResult> {
   return authed((headers) =>
     httpClient.post<SendConversationMessageResult>(
       `/api/v1/conversations/${encodeURIComponent(id)}/messages`,
       { content },
-      { headers, timeoutMs: 60000 }
+      {
+        headers: {
+          ...headers,
+          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+        },
+        // Measured 2026-09: local-Ollama turns take ~30s (English) and
+        // 60-135s (Tamil multi-round tool turns). This must exceed the
+        // backend per-call cap (LLM_TIMEOUT_MS, default 90s) across tool
+        // rounds, or slow-but-healthy turns surface as client timeouts
+        // while the server still persists both messages.
+        timeoutMs: 180000,
+      }
     )
   );
 }

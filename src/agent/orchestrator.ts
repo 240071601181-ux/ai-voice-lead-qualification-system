@@ -3,6 +3,7 @@ import { getAgentPromptContext } from '../services/agentConfigService';
 import { getLlmProvider, LlmMessage, LlmResponse, LlmToolDefinition } from './llm';
 import { getStateByCallId, getStateByConversationId } from '../services/conversationStateService';
 import { formatStateDate } from './textStateExtraction';
+import { isMemoryQuestion } from './memoryAnswers';
 import {
   AgentContext,
   ConversationChannel,
@@ -35,11 +36,14 @@ export const TEXT_TURN_GUIDANCE = [
   '- You are a logistics sales assistant having a multi-turn text conversation.',
   '- Collect missing qualification information naturally, one or two questions at a time.',
   '- Do NOT repeatedly ask for details already listed under CURRENT CONVERSATION STATE.',
+  '- When the user asks about one specific detail (name, pickup, destination, vehicle, cargo, budget, date), answer ONLY that detail concisely — never restate the whole shipment summary unless asked.',
   '- Use RETRIEVED KNOWLEDGE BASE CONTEXT when relevant; otherwise rely on the conversation.',
   '- Maintain conversational continuity with the recent history (names, places, prior answers).',
   '- Reply in the customer\'s language (English, Hindi, Tamil) and code-switch naturally.',
+  '- Respond in the language used by the user. If the user writes in Tamil, respond in Tamil. If the user mixes Tamil and English, respond naturally using the same mix. Never answer Tamil input with English-only text.',
   '- Never claim a booking, payment, or update succeeded unless a tool result confirms it.',
   '- To save details, use the provided tools via native tool calls. Never write JSON tool calls as text; always reply to the customer in natural language.',
+  '- When saving details with tools, include ONLY information stated in the current user message; never re-send already-recorded values from CURRENT CONVERSATION STATE.',
   '- Meetings: only offer to schedule after the user gives a concrete date/time (ask first); check availability before booking; never infer meeting time from required_date.',
 ].join('\n');
 
@@ -54,6 +58,8 @@ export const TOOL_LOOP_CONTINUATION_ERROR =
 const TRIVIAL_MESSAGES = new Set([
   'hi', 'hello', 'hey', 'ok', 'okay', 'thanks', 'thank you', 'bye',
   'yes', 'no', 'sure', 'great', 'fine', 'good morning', 'good afternoon', 'good evening',
+  // Tamil trivials (same intent, Tamil script).
+  'வணக்கம்', 'நன்றி', 'சரி',
 ]);
 
 export interface ProcessTurnOptions {
@@ -98,6 +104,10 @@ export const isKnowledgeSearchRequired = (text: string): boolean => {
     'sunday', 'monday', 'holiday', 'working day', 'open on', 'working hours',
     'shipment', 'delivery', 'cargo', 'price', 'pricing', 'cost', 'charge', 'fee', 'quote',
     'coverage', 'cities', 'support',
+    // Tamil knowledge vocabulary (same intents, Tamil script). Scoring and
+    // thresholds are unchanged — only the trigger vocabulary is extended.
+    'வாகன', 'சரக்கு', 'கட்டுப்பாடு', 'விலை', 'தொகை', 'கட்டணம்', 'சேவை',
+    'நேரம்', 'கொள்கை', 'விதி', 'ஞாயிறு',
   ];
   return keywords.some(kw => lower.includes(kw));
 };
@@ -165,11 +175,15 @@ export class AgentOrchestrator {
       }
 
     // 2. Selective RAG Knowledge Retrieval (preserved topK/threshold).
-    // Skipped for trivial conversational messages; failures never break chat.
+    // Skipped for trivial conversational messages AND for factual memory
+    // questions (state + recent history already answer those; retrieval
+    // would only mix unrelated company content into the reply). Scoring
+    // and thresholds are untouched — this is a routing bypass only.
+    // Failures never break chat.
     let ragContextStr = '';
     let ragUsed = false;
     let ragChunkCount = 0;
-    if (isKnowledgeSearchRequired(lastUserMsg)) {
+    if (!isMemoryQuestion(lastUserMsg) && isKnowledgeSearchRequired(lastUserMsg)) {
       try {
         logger.info('Factual knowledge search triggered in AgentOrchestrator', {
           conversationId: identity.conversationId ?? null,
@@ -318,6 +332,10 @@ SUPPORTED LANGUAGES & RULES:
   ): Promise<LlmResponse> {
     const maxRounds = getChatMaxToolRounds();
     const working: LlmMessage[] = [...seedMessages];
+    // Grounding reference for the multilingual echo guard: the newest user
+    // turn being answered (tool/assistant continuations append after it).
+    const currentUserText =
+      [...working].reverse().find((m) => m.role === 'user')?.content ?? '';
     let current = first;
     let rounds = 0;
 
@@ -338,8 +356,9 @@ SUPPORTED LANGUAGES & RULES:
       for (const call of pending) {
         // The raw arguments string goes straight to the dispatcher, which
         // parses, validates, and injects the trusted context. LLM-supplied
-        // identities inside are ignored — ctx always wins.
-        const outcome = await dispatchConversationTool(ctx, call.function?.name, call.function?.arguments);
+        // identities inside are ignored — ctx always wins. The current user
+        // text grounds multilingual tool writes (echo guard).
+        const outcome = await dispatchConversationTool(ctx, call.function?.name, call.function?.arguments, currentUserText);
         current.executedTools = [...(current.executedTools ?? []), { name: outcome.name, success: outcome.success }];
         followups.push({ role: 'tool', content: outcome.resultText, tool_call_id: call.id });
       }

@@ -47,6 +47,28 @@ describe("AIChatBox", () => {
     expect(box).toHaveValue("");
   });
 
+  it("sends exactly once on rapid double Enter", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(<AIChatBox messages={[]} onSendMessage={onSend} />);
+    const box = screen.getByRole("textbox");
+    await user.type(box, "hello");
+    await user.keyboard("{Enter}");
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("inserts a newline on Shift+Enter without sending", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(<AIChatBox messages={[]} onSendMessage={onSend} />);
+    const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(box, "line one");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(box.value).toContain("\n");
+  });
+
   it("shows the typing indicator and blocks resend while loading", async () => {
     const user = userEvent.setup();
     render(<AIChatBox messages={messages} onSendMessage={() => {}} isLoading />);

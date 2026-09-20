@@ -108,10 +108,41 @@ export interface StateValidationResult {
 
 const MAX_TEXT_FIELD_LEN = 500;
 
+/**
+ * Scripts that legitimately appear in slot values. The LLM produces these
+ * values (heuristic captures are already UNI-constrained), and small local
+ * models garble Tamil into neighboring scripts (observed: Kannada
+ * characters, stray combining marks) when writing tool arguments. Values
+ * outside these blocks are model corruption, never customer language:
+ *   Latin (+ extensions for names like José) and General Punctuation (– —),
+ *   Tamil, Devanagari (Hindi names), ₹, ASCII digits/symbols via the ranges.
+ * Pure-ASCII English values are unaffected by this guard.
+ */
+// \u0020-\u024F Latin/punct/digits, \u2000-\u206F general punctuation,
+// \u20B9 rupees sign, \u0900-\u097F Devanagari, \u0B80-\u0BFF Tamil.
+const STATE_VALUE_ALLOWED = new RegExp(
+  '[\\u0020-\\u024F\\u2000-\\u206F\\u20B9\\u0900-\\u097F\\u0B80-\\u0BFF]'
+);
+/** Unassigned code points (observed: the model emitted U+0BBC, Cn here). */
+const HAS_UNASSIGNED = /[\p{Cn}]/u;
+/** Stray combining mark with no base character (broken grapheme cluster). */
+const LEADING_MARK = /^[\p{M}]/u;
+
+const hasDisallowedScript = (s: string): boolean => {
+  for (const ch of s) {
+    if (!STATE_VALUE_ALLOWED.test(ch)) return true;
+  }
+  return false;
+};
+
 const sanitizeTextField = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim().replace(/\s+/g, ' ');
   if (trimmed.length === 0 || trimmed.length > MAX_TEXT_FIELD_LEN) return undefined;
+  // Reject model-garbled script (never valid customer text in en/hi/ta).
+  if (hasDisallowedScript(trimmed)) return undefined;
+  if (HAS_UNASSIGNED.test(trimmed)) return undefined;
+  if (LEADING_MARK.test(trimmed)) return undefined;
   // Reject anything that looks like SQL / code injection rather than an address.
   if (/;\s*(select|insert|update|delete|drop|alter)\b/i.test(trimmed)) return undefined;
   if (/(__proto__|constructor\s*\[|process\.env|require\s*\()/.test(trimmed)) return undefined;
@@ -120,10 +151,23 @@ const sanitizeTextField = (value: unknown): string | undefined => {
 };
 
 const sanitizePositiveNumber = (value: unknown): number | undefined => {
-  const num = typeof value === 'string' ? Number(value.replace(/[,₹\s]/g, '')) : value;
+  const num =
+    typeof value === 'string'
+      ? Number(tamilDigitsToAscii(value).replace(/[,₹\s]|ரூபாய்|ரூ\.?/g, ''))
+      : value;
   if (typeof num !== 'number' || !Number.isFinite(num) || num <= 0) return undefined;
   return num;
 };
+
+/**
+ * Tamil-script digits (U+0BE6–U+0BEF) → ASCII. Users type either script;
+ * the deterministic parsers below normalize before Number().
+ */
+export const tamilDigitsToAscii = (s: string): string =>
+  s.replace(/[\u0BE6-\u0BEF]/g, (ch) => String('௦௧௨௩௪௫௬௭௮௯'.indexOf(ch)));
+
+/** Latin + Tamil-script word characters for captured place/name values. */
+const UNI = 'A-Za-z\\u0B80-\\u0BFF';
 
 /**
  * Validate an arbitrary (possibly LLM-produced) object into a safe partial
@@ -260,7 +304,7 @@ const VEHICLE_KEYWORDS = [
 ];
 
 const URGENCY_KEYWORDS: Record<string, string[]> = {
-  urgent: ['urgent', 'asap', 'immediately', 'emergency', 'same day'],
+  urgent: ['urgent', 'asap', 'immediately', 'emergency', 'same day', 'அவசர'],
   high: ['high priority', 'priority', 'fast'],
   normal: ['normal', 'standard'],
   low: ['flexible', 'whenever'],
@@ -347,18 +391,43 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
   if (text.length === 0) return {};
   const lower = text.toLowerCase();
 
-  // Explicit pickup correction: "pickup should be X" / "pickup is X" / "from X"
+  // Explicit pickup correction: "pickup should be X" / "pickup is X" / "from X".
+  // Values may use Tamil script ("Pickup சென்னை"); terminators keep a
+  // following English field marker (destination/to/budget/...) out of the value.
+  // Bare "pickup X" is accepted only when X is not a question word
+  // ("What is my pickup location?" must not capture "location").
   const pickupCorrection =
-    text.match(/pickup\s+(?:should\s+be|is|:)\s*([A-Za-z][A-Za-z\s.'-]{1,60}?)(?:\s+and\b|[,.]|$)/i) ||
-    text.match(/(?:^|\b)from\s+([A-Za-z][A-Za-z\s.'-]{1,60}?)(?:\s+to\b|[,.]|$)/i);
+    text.match(
+      new RegExp(
+        `pickup\\s+(?:should\\s+be|is|:)\\s*([${UNI}][${UNI}\\s.'-]{1,60}?)(?:\\s+(?:and|destination|to|budget|pickup)\\b|[,.]|$)`,
+        'i'
+      )
+    ) ||
+    text.match(/(?:^|\b)from\s+([A-Za-z][A-Za-z\s.'-]{1,60}?)(?:\s+to\b|[,.]|$)/i) ||
+    text.match(
+      new RegExp(
+        `pickup\\s+([${UNI}][${UNI}\\s.'-]{1,30}?)(?:\\s+(?:and|destination|to|budget|pickup)\\b|[,.]|$)`,
+        'i'
+      )
+    );
   if (pickupCorrection) {
     const val = pickupCorrection[1].trim().replace(/[.,;]+$/, '');
-    if (val.length > 1) raw['pickup_location'] = val;
+    if (val.length > 1 && !/^(location|address|date|time|details?|info|points?)\b/i.test(val)) {
+      raw['pickup_location'] = val;
+    }
   }
 
-  // Destination: "destination is X" / "destination X" / "to X" / "destination should be X"
+  // Destination: "destination is X" / "destination X" / "to X" / "destination should be X".
+  // Tamil-script values allowed with the same English markers. Lazy with an
+  // explicit terminator so trailing clauses ("destination Bangalore. Budget
+  // 20000") never pollute the value.
   const destMatch =
-    text.match(/destination\s+(?:(?:should\s+be|is|:)\s*)?([A-Za-z][A-Za-z\s.'-]{1,60})/i) ||
+    text.match(
+      new RegExp(
+        `destination\\s+(?:(?:should\\s+be|is|:)\\s*)?([${UNI}][${UNI}\\s.'-]{1,60}?)(?:\\s+(?:from|budget|pickup|and)\\b|[,.]|$)`,
+        'i'
+      )
+    ) ||
     text.match(/\bto\s+([A-Za-z][A-Za-z\s.'-]{1,60}?)(?:\s+from\b|[,.]|$)/i);
   if (destMatch) {
     const val = destMatch[1].trim().replace(/[.,;]+$/, '');
@@ -368,7 +437,8 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
     }
   }
 
-  // Vehicle type keyword scan
+  // Vehicle type keyword scan (English). Tamil-script vehicle words map to
+  // the same English canonical values so scoring/memory stay consistent.
   for (const v of VEHICLE_KEYWORDS) {
     if (lower.includes(v)) {
       raw['vehicle_type'] = v
@@ -378,27 +448,111 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
       break;
     }
   }
+  if (!raw['vehicle_type']) {
+    const TAMIL_VEHICLES: Array<[RegExp, string]> = [
+      [/டிரக்/, 'Truck'],
+      [/லாரி/, 'Lorry'],
+      [/வேன்/, 'Van'],
+      [/கண்டெய்னர்/, 'Container'],
+      [/டெம்போ/, 'Tempo'],
+      [/டேங்கர்/, 'Tanker'],
+    ];
+    for (const [re, canonical] of TAMIL_VEHICLES) {
+      if (re.test(text)) {
+        raw['vehicle_type'] = canonical;
+        break;
+      }
+    }
+  }
 
-  // Cargo weight: "500kg", "500 kg", "weight is 500"
-  const weightMatch = text.match(/(\d+(?:\.\d+)?)\s*(kg|kgs|kilos?|tonnes?|tons?)\b/i);
+  // Cargo weight: "500kg", "500 kg", "weight is 500", "500 கிலோ", "2 டன்".
+  // Tamil digits are normalized; Tamil units map to kg/tonnes. The trailing
+  // boundary is script-aware: JS \b never matches around Tamil letters.
+  const weightMatch = text.match(
+    /([\d\u0BE6-\u0BEF]+(?:\.[\d\u0BE6-\u0BEF]+)?)\s*((?:kg|kgs|kilos?|tonnes?|tons?)\b|(?:கிலோ(?:கிராம்)?|டன்(?:கள்)?)(?![A-Za-z\u0B80-\u0BFF]))/i
+  );
   if (weightMatch) {
-    let num = Number(weightMatch[1]);
+    let num = Number(tamilDigitsToAscii(weightMatch[1]));
     const unit = weightMatch[2].toLowerCase();
-    if (unit.startsWith('ton')) num = num * 1000;
+    if (unit.startsWith('ton') || unit.startsWith('டன்')) num = num * 1000;
     if (Number.isFinite(num) && num > 0) raw['cargo_weight'] = num;
   }
 
-  // Budget: "budget 15000", "budget is INR 15000", "₹15000"
+  // Budget: "budget 15000", "budget is INR 15000", "₹15000", "Budget 20000 ரூபாய்".
   const budgetMatch =
-    text.match(/budget[^0-9₹]{0,10}(?:inr|rs\.?|₹)?\s*([0-9][0-9,]*)/i) ||
-    text.match(/(?:inr|rs\.?|₹)\s*([0-9][0-9,]*)/i);
+    text.match(/budget[^0-9₹\u0BE6-\u0BEF]{0,10}(?:inr|rs\.?|₹|ரூபாய்|ரூ\.?)?\s*([\d\u0BE6-\u0BEF][\d\u0BE6-\u0BEF,]*)/i) ||
+    text.match(/(?:inr|rs\.?|₹|ரூபாய்|ரூ\.?)\s*([\d\u0BE6-\u0BEF][\d\u0BE6-\u0BEF,]*)/i);
   if (budgetMatch) {
-    const num = Number(budgetMatch[1].replace(/,/g, ''));
+    const num = Number(tamilDigitsToAscii(budgetMatch[1]).replace(/,/g, ''));
     if (Number.isFinite(num) && num > 0) raw['budget'] = num;
   }
 
-  // Customer name: "my name is X" / "I am X" / "this is X"
-  const nameMatch = text.match(/(?:my name is|i am|this is)\s+([A-Za-z][A-Za-z\s.'-]{1,60})/i);
+  // Tamil correction requests: "<field>(-ஐ) <value> (ஆக|என்று) மாற்று…"
+  // ("என்னுடைய pickup-ஐ Tambaram ஆக மாற்றுங்கள்" → pickup_location=Tambaram).
+  // Deterministic so the slot is corrected even when the small local model
+  // fumbles the native tool call for Tamil; the following LLM turn then
+  // acknowledges the already-persisted value. Runs after the plain captures
+  // above so the correction (latest intent) wins within one message.
+  // English text is untouched by this block (மாற்று never appears there).
+  const changePos = text.search(/மாற்ற[\u0B80-\u0BFF]*/);
+  if (changePos > 0) {
+    const before = text.slice(0, changePos);
+    let correctionField: TextStateField | null = null;
+    if (/pickup/i.test(before)) correctionField = 'pickup_location';
+    else if (/destination/i.test(before)) correctionField = 'destination';
+    else if (/\bvehicle\b/i.test(before)) correctionField = 'vehicle_type';
+    else if (/\bbudget\b/i.test(before)) correctionField = 'budget';
+    else if (/(?:\bname\b|பெயர்)/i.test(before)) correctionField = 'customer_name';
+    else if (/\bcargo\b/i.test(before)) correctionField = 'cargo_type';
+    if (correctionField) {
+      const markerStrip =
+        correctionField === 'pickup_location'
+          ? /pickup(?:\s+location)?(?:-ஐ)?/i
+          : correctionField === 'destination'
+            ? /destination(?:-ஐ)?/i
+            : correctionField === 'vehicle_type'
+              ? /\bvehicle(?:\s+type)?(?:-ஐ)?/i
+              : correctionField === 'budget'
+                ? /\bbudget(?:-ஐ)?/i
+                : correctionField === 'customer_name'
+                  ? /(?:\bname\b|பெயர்)(?:-ஐ)?/i
+                  : /\bcargo(?:\s+type)?(?:-ஐ)?/i;
+      let corrected = before
+        .replace(/^(?:என்னுடைய|எனது|என்)\s+/, '')
+        .replace(markerStrip, '')
+        .replace(/-ஐ/g, '')
+        .replace(/\s*(?:ஆக|என்று)\s*$/, '')
+        .trim()
+        .replace(/[.,;]+$/, '');
+      // Reverse the ஆக-adverbial fusion glued onto the value
+      // ("தாம்பரமாக" = தாம்பரம் + ஆக, "சென்னையாக" = சென்னை + ஆக).
+      // Only the unambiguous endings are reversed; anything else stays
+      // well-formed Tamil for the LLM turn to refine. Correction only.
+      if (corrected.length > 4) {
+        if (/மாக$/.test(corrected)) corrected = corrected.replace(/மாக$/, 'ம்');
+        else if (/யாக$/.test(corrected)) corrected = corrected.replace(/யாக$/, '');
+        else if (/வாக$/.test(corrected)) corrected = corrected.replace(/வாக$/, '');
+      }
+      corrected = corrected.trim();
+      if (correctionField === 'budget') {
+        const num = Number(tamilDigitsToAscii(corrected).replace(/[^0-9]/g, ''));
+        if (Number.isFinite(num) && num > 0) raw['budget'] = num;
+      } else if (
+        corrected.length > 1 &&
+        !/^(location|address|என்ன|எது)\b/i.test(corrected)
+      ) {
+        raw[correctionField] = corrected;
+      }
+    }
+  }
+  // Customer name: "my name is X" / "I am X" / "this is X" /
+  // "என் பெயர் X" / "எனது பெயர் X".
+  const nameMatch = text.match(
+    new RegExp(
+      `(?:my name is|i am|this is|என் பெயர்|எனது பெயர்)\\s*([${UNI}][${UNI}\\s.'-]{1,60}?)(?:[,.]|$)`,
+      'i'
+    )
+  );
   if (nameMatch) {
     const val = nameMatch[1].trim().replace(/[.,;]+$/, '');
     if (val.length > 1 && !/^(looking|trying|here)\b/i.test(val)) raw['customer_name'] = val;
@@ -432,12 +586,25 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
   const cargoAlternatives = [
     new RegExp(`(?:cargo\\s+(?:is|type\\s*(?:is|:)?)\\s*|shipping\\s+|transporting\\s+)${CARGO_PHRASE}`, 'i'),
     new RegExp(`\\bmove\\s+[\\d.]+\\s*(?:kg|kgs?|kilos?|tonnes?|tons?)\\s+of\\s+${CARGO_PHRASE}`, 'i'),
+    // Tamil: "<description> பொருட்கள்" ("500 கிலோ எலக்ட்ரானிக்ஸ் பொருட்கள்"
+    // → "எலக்ட்ரானிக்ஸ்"; a leading weight measure is skipped, not captured).
+    new RegExp(
+      `(?:[\\d\\u0BE6-\\u0BEF.,]+\\s*(?:kg|kgs?|kilos?|tonnes?|tons?|கிலோ(?:கிராம்)?|டன்(?:கள்)?)\\s+)?([\\u0B80-\\u0BFF][\\u0B80-\\u0BFF\\s.'-]{1,60}?)\\s+பொரு(?:ள்|ட்கள்)(?![\\u0B80-\\u0BFF])`,
+      'i'
+    ),
   ];
   let cargoVal: string | null = null;
   for (const re of cargoAlternatives) {
     const m = text.match(re);
     if (m) {
-      const cleaned = cleanCargo(m[1]);
+      // A leading weight measure ("500 கிலோ X", "2 tons of X") belongs to
+      // cargo_weight, never to the description.
+      const cleaned = cleanCargo(
+        m[1].replace(
+          /^(?:[\d\u0BE6-\u0BEF.,]+\s*(?:kg|kgs?|kilos?|tonnes?|tons?|கிலோ(?:கிராம்)?|டன்(?:கள்)?)\s+)+/i,
+          ''
+        )
+      );
       if (cleaned) {
         cargoVal = cleaned;
         break;

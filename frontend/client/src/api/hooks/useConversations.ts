@@ -160,7 +160,12 @@ export function useCreateConversationMutation() {
 export function useSendConversationMessageMutation(conversationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (content: string) => sendConversationMessage(conversationId, content),
+    // A send is never auto-retried: each attempt persists server-side, so a
+    // blind retry could double rows. Retries go through the caller's explicit
+    // Retry, reusing the same idempotency key (server replays, never dupes).
+    retry: false,
+    mutationFn: (input: { content: string; idempotencyKey?: string }) =>
+      sendConversationMessage(conversationId, input.content, input.idempotencyKey),
     onSuccess: (result) => {
       queryClient.setQueryData(
         conversationKeys.messages(conversationId),
