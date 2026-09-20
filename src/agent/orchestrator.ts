@@ -2,8 +2,9 @@ import { agentConfig } from './config';
 import { getAgentPromptContext } from '../services/agentConfigService';
 import { getLlmProvider, LlmMessage, LlmResponse, LlmToolDefinition } from './llm';
 import { getStateByCallId, getStateByConversationId } from '../services/conversationStateService';
+import { leadRepository } from '../repositories/leadRepository';
 import { formatStateDate } from './textStateExtraction';
-import { isMemoryQuestion } from './memoryAnswers';
+import { detectTurnLanguage, isMemoryQuestion, languageDirective } from './memoryAnswers';
 import {
   AgentContext,
   ConversationChannel,
@@ -41,9 +42,14 @@ export const TEXT_TURN_GUIDANCE = [
   '- Maintain conversational continuity with the recent history (names, places, prior answers).',
   '- Reply in the customer\'s language (English, Hindi, Tamil) and code-switch naturally.',
   '- Respond in the language used by the user. If the user writes in Tamil, respond in Tamil. If the user mixes Tamil and English, respond naturally using the same mix. Never answer Tamil input with English-only text.',
+  '- CUSTOMER IDENTITY: address the customer with the CURRENT CONVERSATION STATE customer name when known, else the LINKED LEAD IDENTITY name when present. Never invent, guess, or substitute any other name — not a placeholder name, not the operator\'s name. When no name is known anywhere, greet neutrally without a name and ask for it naturally when appropriate.',
   '- Never claim a booking, payment, or update succeeded unless a tool result confirms it.',
   '- To save details, use the provided tools via native tool calls. Never write JSON tool calls as text; always reply to the customer in natural language.',
   '- When saving details with tools, include ONLY information stated in the current user message; never re-send already-recorded values from CURRENT CONVERSATION STATE.',
+  '- Collect missing details in a natural order — customer name, contact (phone or email), pickup and destination, cargo and weight/dimensions, vehicle, delivery date, budget, urgency, booking intent — asking one or two questions at a time; never re-ask anything already listed under CURRENT CONVERSATION STATE or LINKED LEAD IDENTITY.',
+  '- When contact details are still unknown and needed for saving or follow-up, ask naturally for a phone number or email; never invent contact details.',
+  '- Never claim WhatsApp consent, a booking, or a payment; ask explicitly first and only proceed on confirmation.',
+  '- Describe the company ONLY from RETRIEVED KNOWLEDGE BASE CONTEXT; never invent company names, services, or claims ("our company …" without grounding).',
   '- Meetings: only offer to schedule after the user gives a concrete date/time (ask first); check availability before booking; never infer meeting time from required_date.',
 ].join('\n');
 
@@ -174,6 +180,48 @@ export class AgentOrchestrator {
         logger.error('Error fetching conversation state in AgentOrchestrator', { error: err.message });
       }
 
+    // 1b. Trusted lead identity (read-only). The ONLY customer-name source
+    // besides extracted conversation state: conversation → leadId → lead
+    // record. Never the operator name, never a placeholder, never invented.
+    // Shown to the model so a linked conversation greets the real customer;
+    // never written anywhere here (state writes stay user-driven).
+    // Failures never break chat.
+    let leadIdentityStr = '';
+    try {
+      const leadId =
+        typeof effectiveContext.leadId === 'string' && effectiveContext.leadId.length > 0
+          ? effectiveContext.leadId
+          : null;
+      if (leadId) {
+        const lead = await leadRepository.findById(leadId);
+        const pick = (value: unknown): string => {
+          const text = typeof value === 'string' ? value.trim() : '';
+          return text.length > 0 ? text : 'None — no customer name on record';
+        };
+        if (lead) {
+          const phone =
+            typeof lead.phone === 'string' && lead.phone.trim().length > 0
+              ? lead.phone.trim()
+              : 'Not provided';
+          const email =
+            typeof lead.email === 'string' && lead.email.trim().length > 0
+              ? lead.email.trim()
+              : 'Not provided';
+          leadIdentityStr =
+            `\n\nLINKED LEAD IDENTITY (trusted, read-only — address the customer by this name only when conversation state has no customer name; do not ask for contact details already listed here):\n` +
+            `- Linked Lead Name: ${pick(lead.name)}\n` +
+            `- Linked Lead Phone: ${phone}\n` +
+            `- Linked Lead Email: ${email}`;
+        } else {
+          leadIdentityStr =
+            `\n\nLINKED LEAD IDENTITY (trusted, read-only — address the customer by this name only when conversation state has no customer name; do not ask for contact details already listed here):\n` +
+            `- Linked Lead Name: None — no customer name on record`;
+        }
+      }
+    } catch (err: any) {
+      logger.error('Error fetching linked lead in AgentOrchestrator', { error: err.message });
+    }
+
     // 2. Selective RAG Knowledge Retrieval (preserved topK/threshold).
     // Skipped for trivial conversational messages AND for factual memory
     // questions (state + recent history already answer those; retrieval
@@ -217,10 +265,12 @@ ${getAgentPromptContext()}
 
 ${TEXT_TURN_GUIDANCE}
 
+${languageDirective(detectTurnLanguage(lastUserMsg))}
+
 SUPPORTED LANGUAGES & RULES:
 - Languages: English, Hindi, Tamil.
 - Naturally code-switch if customer speaks Hindi or Tamil.
-- Focus strictly on understanding & collecting logistics requirements.${stateContextStr}${ragContextStr}`;
+- Focus strictly on understanding & collecting logistics requirements.${stateContextStr}${leadIdentityStr}${ragContextStr}`;
 
     // Filter incoming messages to exclude any existing system message and
     // prepend the single assembled system prompt (never duplicated).

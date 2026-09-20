@@ -417,6 +417,47 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
     }
   }
 
+  // English correction: "Change|Update|Set|Correct … <field> … to <value>".
+  // Runs BEFORE destination capture so a pickup correction ("change my
+  // pickup location to Tambaram") is not misread as a destination by the
+  // bare "to X" rule below. Deterministic for the same reason as the Tamil
+  // block above; other English behavior is untouched (the verb + marker +
+  // "to" trio must all be present).
+  const enCorrection = text.match(
+    /\b(change|update|set|correct|modify)\b[^.?!]{0,80}?\b(pickup|destination|vehicle|budget|cargo|name)\b[^.?!]{0,80}?\bto\s+([A-Za-z0-9][A-Za-z0-9\s.'-]{1,40}?)(?:\s+(?:and|for|with|from|please)\b|[,.!?]|$)/i
+  );
+  let enCorrectionField: TextStateField | null = null;
+  let enCorrectionValue: string | null = null;
+  if (enCorrection) {
+    const marker = enCorrection[2].toLowerCase();
+    const val = enCorrection[3].trim().replace(/[.,;]+$/, '');
+    const field: TextStateField =
+      marker === 'pickup'
+        ? 'pickup_location'
+        : marker === 'destination'
+          ? 'destination'
+          : marker === 'vehicle'
+            ? 'vehicle_type'
+            : marker === 'budget'
+              ? 'budget'
+              : marker === 'name'
+                ? 'customer_name'
+                : 'cargo_type';
+    if (val.length > 1) {
+      if (field === 'budget') {
+        const num = Number(val.replace(/[^0-9]/g, ''));
+        if (Number.isFinite(num) && num > 0) {
+          raw['budget'] = num;
+          enCorrectionField = field;
+          enCorrectionValue = val;
+        }
+      } else {
+        raw[field] = val;
+        enCorrectionField = field;
+        enCorrectionValue = val;
+      }
+    }
+  }
   // Destination: "destination is X" / "destination X" / "to X" / "destination should be X".
   // Tamil-script values allowed with the same English markers. Lazy with an
   // explicit terminator so trailing clauses ("destination Bangalore. Budget
@@ -430,9 +471,24 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
     ) ||
     text.match(/\bto\s+([A-Za-z][A-Za-z\s.'-]{1,60}?)(?:\s+from\b|[,.]|$)/i);
   if (destMatch) {
-    const val = destMatch[1].trim().replace(/[.,;]+$/, '');
+    let val = destMatch[1].trim().replace(/[.,;]+$/, '');
+    // "destination to X" (no is/should-be marker): drop the preposition so
+    // the value is X, not "to X". A real place never starts with "to ".
+    val = val.replace(/^to\s+/i, '');
     // Avoid capturing verbs ("to ship", "to send", "to book")
-    if (val.length > 1 && !/^(ship|send|book|move|transport|deliver)\b/i.test(val)) {
+    // — and never let a bare "to X" echo an explicit non-destination
+    // correction from this same turn ("change pickup to Tambaram" must not
+    // also store destination=Tambaram when no destination was mentioned).
+    const misfiredCorrection =
+      enCorrectionField !== null &&
+      enCorrectionField !== 'destination' &&
+      !/destination/i.test(text) &&
+      val.toLowerCase() === (enCorrectionValue ?? '').toLowerCase();
+    if (
+      val.length > 1 &&
+      !/^(ship|send|book|move|transport|deliver)\b/i.test(val) &&
+      !misfiredCorrection
+    ) {
       raw['destination'] = val;
     }
   }
@@ -463,6 +519,13 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
         break;
       }
     }
+  }
+  if (!raw['vehicle_type']) {
+    // Bare container size ("My vehicle is 14ft", "need a 20 ft") implies the
+    // standard container of that length. Runs after the keyword scan so full
+    // phrases ("14ft container", "truck") keep their exact canonical values.
+    const bareFt = text.match(/\b(14|20|32)\s*ft\b/i);
+    if (bareFt) raw['vehicle_type'] = `${bareFt[1]}ft Container`;
   }
 
   // Cargo weight: "500kg", "500 kg", "weight is 500", "500 கிலோ", "2 டன்".
@@ -585,7 +648,7 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
   // is fragile" later in the sentence) must not shadow a real description.
   const cargoAlternatives = [
     new RegExp(`(?:cargo\\s+(?:is|type\\s*(?:is|:)?)\\s*|shipping\\s+|transporting\\s+)${CARGO_PHRASE}`, 'i'),
-    new RegExp(`\\bmove\\s+[\\d.]+\\s*(?:kg|kgs?|kilos?|tonnes?|tons?)\\s+of\\s+${CARGO_PHRASE}`, 'i'),
+    new RegExp(`\\b(?:move|send|ship)\\s+[\\d.]+\\s*(?:kg|kgs?|kilos?|tonnes?|tons?)\\s+of\\s+${CARGO_PHRASE}`, 'i'),
     // Tamil: "<description> பொருட்கள்" ("500 கிலோ எலக்ட்ரானிக்ஸ் பொருட்கள்"
     // → "எலக்ட்ரானிக்ஸ்"; a leading weight measure is skipped, not captured).
     new RegExp(
@@ -656,6 +719,74 @@ export const extractStateFromMessage = (message: string, options: { now?: Date }
     }
   }
 
+  // Cargo dimensions: "10x20", "10 x 20 x 30 cm", "12ft x 8ft".
+  // Digit runs broken by letters (dates, weights, budgets) never match —
+  // only contiguous L [x W [x H]] [unit] shapes qualify.
+  const dimMatch = text.match(
+    /(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?\s*(ft|feet|m|meters?|cm|in|inch|inches)?(?![A-Za-z0-9])/i
+  );
+  if (dimMatch) {
+    const parts = [dimMatch[1], dimMatch[2], dimMatch[3]].filter(
+      (p): p is string => typeof p === 'string' && p.length > 0
+    );
+    const unit = dimMatch[4] ? ` ${dimMatch[4].toLowerCase()}` : '';
+    const dims = `${parts.join(' x ')}${unit}`;
+    if (dims.length <= 60) raw['cargo_dimensions'] = dims;
+  }
+
   const { sanitized } = validateTextStateUpdate(raw);
   return sanitized;
+};
+
+/**
+ * Lead contact details stated by the customer in their own words.
+ *
+ * Contact belongs to the LEAD record (name/phone/email columns), never to
+ * conversation state — this parser feeds the controller's progressive
+ * lead-storage path only. Pure: no I/O, never throws. Returns a field only
+ * when the message carries an explicit, well-formed value:
+ * - email: standard address shape ("my email is santhosh@example.com").
+ * - phone: Indian 10-digit mobile (optionally +91/91/0-prefixed) or an
+ *   explicit international number starting with "+". Short digit runs
+ *   (weights, budgets, dates, dimensions) never qualify.
+ */
+export interface ContactUpdate {
+  email?: string;
+  phone?: string;
+}
+
+export const extractContactFromMessage = (message: string): ContactUpdate => {
+  const out: ContactUpdate = {};
+  if (!message || typeof message !== 'string') return out;
+  const text = message.trim();
+  if (text.length === 0) return out;
+
+  const emailMatch = text.match(
+    /\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/
+  );
+  if (emailMatch) {
+    const email = emailMatch[1].trim().toLowerCase();
+    if (email.length <= 254) out.email = email;
+  }
+
+  // Contiguous digit runs possibly joined by spaces/dashes ("+91 98765 43210").
+  const runs = text.match(/\+?[0-9][0-9\s-]{7,17}[0-9]/g) ?? [];
+  for (const run of runs) {
+    const hasPlus = run.trim().startsWith('+');
+    const digits = run.replace(/[^0-9]/g, '');
+    let normalized: string | null = null;
+    if (!hasPlus && /^(91)?[6-9]\d{9}$/.test(digits)) {
+      // Indian mobile, optional 91 prefix → canonical +91 form.
+      normalized = `+91${digits.slice(-10)}`;
+    } else if (!hasPlus && /^0[6-9]\d{9}$/.test(digits)) {
+      normalized = `+91${digits.slice(1)}`;
+    } else if (hasPlus && digits.length >= 8 && digits.length <= 13) {
+      normalized = `+${digits}`;
+    }
+    if (normalized) {
+      out.phone = normalized;
+      break;
+    }
+  }
+  return out;
 };

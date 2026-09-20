@@ -22,6 +22,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../errors";
+import { leadKeys } from "./useLeads";
 import {
   abandonConversation,
   bookConversationMeeting,
@@ -51,6 +52,13 @@ export const conversationKeys = {
   list: (params: ListConversationsInput) => [...conversationKeys.lists(), params] as const,
   detail: (id: string) => [...conversationKeys.all, "detail", id] as const,
   messages: (id: string) => [...conversationKeys.all, "messages", id] as const,
+  /**
+   * Key for send-message mutations of one conversation. The MutationCache
+   * (global, survives page unmount) is the durable source for in-flight and
+   * failed sends — the detail page reads it via useIsMutating /
+   * useMutationState so navigation never loses pending/error state.
+   */
+  sendMessage: (id: string) => [...conversationKeys.all, "send", id] as const,
   state: (id: string) => [...conversationKeys.all, "state", id] as const,
   qualification: (id: string) => [...conversationKeys.all, "qualification", id] as const,
   availability: (id: string, query: ConversationAvailabilityQuery) =>
@@ -91,6 +99,9 @@ export function useConversationQuery(id: string | undefined) {
     enabled: !!id,
     retry: shouldRetry,
     staleTime: 15_000,
+    // Returning to the page must show the latest server truth (a send may
+    // have completed while this page was unmounted).
+    refetchOnMount: "always",
   });
 }
 
@@ -106,6 +117,9 @@ export function useConversationMessagesQuery(id: string | undefined, limit = 50)
     enabled: !!id,
     retry: shouldRetry,
     staleTime: 10_000,
+    // History is server truth: always refetch on return so a result
+    // persisted while away (or after a refresh) renders immediately.
+    refetchOnMount: "always",
   });
 }
 
@@ -117,6 +131,8 @@ export function useConversationStateQuery(id: string | undefined) {
     enabled: !!id,
     retry: shouldRetry,
     staleTime: 15_000,
+    // Tool-executed slot changes may have landed while away.
+    refetchOnMount: "always",
   });
 }
 
@@ -135,6 +151,8 @@ export function useConversationQualificationQuery(id: string | undefined) {
       return shouldRetry(failureCount, error);
     },
     staleTime: 15_000,
+    // Auto-qualification may have persisted while away.
+    refetchOnMount: "always",
   });
 }
 
@@ -164,6 +182,10 @@ export function useSendConversationMessageMutation(conversationId: string) {
     // blind retry could double rows. Retries go through the caller's explicit
     // Retry, reusing the same idempotency key (server replays, never dupes).
     retry: false,
+    // Durable across unmounts: the page observes pending/failed sends for
+    // this conversation through the global MutationCache, so navigating
+    // away mid-processing loses neither the typing state nor the retry.
+    mutationKey: conversationKeys.sendMessage(conversationId),
     mutationFn: (input: { content: string; idempotencyKey?: string }) =>
       sendConversationMessage(conversationId, input.content, input.idempotencyKey),
     onSuccess: (result) => {
@@ -187,6 +209,13 @@ export function useSendConversationMessageMutation(conversationId: string) {
       queryClient.invalidateQueries({ queryKey: conversationKeys.detail(conversationId) });
       queryClient.invalidateQueries({ queryKey: conversationKeys.state(conversationId) });
       queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
+      // Phase 19 — a turn can progressively store contact details on the
+      // linked lead: refresh its record (and any list showing it) as well.
+      const linkedLeadId = result.conversation?.lead_id;
+      if (typeof linkedLeadId === "string" && linkedLeadId.length > 0) {
+        queryClient.invalidateQueries({ queryKey: leadKeys.detail(linkedLeadId) });
+        queryClient.invalidateQueries({ queryKey: leadKeys.lists() });
+      }
     },
   });
 }

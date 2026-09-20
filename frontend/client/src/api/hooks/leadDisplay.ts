@@ -32,10 +32,12 @@ export function toDisplayLead(api: ApiLead): DisplayLead {
     vehicle: "—",
     cargo: "—",
     budget: "—",
-    // Display-only signal: backend stores no score/tier. Neutral placeholder;
-    // the detail page labels these as demo placeholders for api leads.
+    // No backend score/tier exists per lead: mark the signal unknown so the
+    // list renders "—" instead of a fabricated badge. Real tier/score come
+    // only from persisted per-conversation qualifications.
     tier: "WARM",
     score: 0,
+    signalUnknown: true,
     status: api.status || "New",
     last: "—",
     created: api.created_at,

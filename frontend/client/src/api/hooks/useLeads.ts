@@ -70,27 +70,25 @@ export type LeadDetailResult =
   | { status: "loading" }
   | {
       status: "ready";
-      /** 'api' = live backend record; 'mock' = demo fallback (backend lookup failed). */
-      source: "api" | "mock";
+      /** Always the live backend record — no demo fallback exists. */
+      source: "api";
       displayLead: DisplayLead;
-      apiLead: ApiLead | null;
-      /** Backend error that caused the mock fallback (null when source is 'api'). */
-      apiError: ApiError | Error | null;
+      apiLead: ApiLead;
+      apiError: null;
       refetch: () => void;
     }
   | { status: "not-found" }
   | { status: "error"; error: ApiError | Error; refetch: () => void };
 
 /**
- * Detail resolution with mock fallback.
+ * Detail resolution from the live backend only.
  *
- * Always requests the real backend lead first. When the backend lookup fails
- * but the id matches a known demo lead, the demo lead is shown (with the
- * backend error exposed so the UI can badge it as demo data). Genuine
- * backend ids (e.g. UUIDs returned by POST /leads) surface true
- * loading / not-found / error states.
+ * Phase 19 — conversation-first integrity: a failed backend lookup surfaces
+ * a truthful loading / not-found / error state. Demo/mock leads are never
+ * substituted for real records, so the detail page cannot display
+ * unpersisted customer or shipment data.
  */
-export function useLeadDetail(id: string | undefined, fallback?: DisplayLead): LeadDetailResult {
+export function useLeadDetail(id: string | undefined): LeadDetailResult {
   const query = useLeadQuery(id);
   const refetch = () => {
     void query.refetch();
@@ -109,16 +107,6 @@ export function useLeadDetail(id: string | undefined, fallback?: DisplayLead): L
   }
   if (query.isPending) return { status: "loading" };
   if (query.isError) {
-    if (fallback) {
-      return {
-        status: "ready",
-        source: "mock",
-        displayLead: fallback,
-        apiLead: null,
-        apiError: toError(query.error),
-        refetch,
-      };
-    }
     if (query.error instanceof ApiError && query.error.kind === "not-found") {
       return { status: "not-found" };
     }

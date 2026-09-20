@@ -85,6 +85,21 @@ describe('Tamil state extraction (mixed + Tamil-script)', () => {
     expect(extractStateFromMessage('இதை மாற்றுங்கள்.')).toEqual({});
   });
 
+  it('extracts English change/update corrections without misfiring destination', () => {
+    const pickup = extractStateFromMessage('Change my pickup location to Tambaram.');
+    expect(pickup.pickup_location).toBe('Tambaram');
+    expect(pickup.destination).toBeUndefined();
+    expect(extractStateFromMessage('Please update pickup to Chennai.').pickup_location).toBe(
+      'Chennai'
+    );
+    expect(extractStateFromMessage('Set destination to Madurai.').destination).toBe('Madurai');
+    expect(extractStateFromMessage('Change my budget to 25000.').budget).toBe(25000);
+    // No regression: plain "to X" / "from A to B" shipping intent unchanged.
+    expect(extractStateFromMessage('Ship to Mumbai.').destination).toBe('Mumbai');
+    expect(extractStateFromMessage('From Chennai to Bangalore.').destination).toBe('Bangalore');
+    expect(extractStateFromMessage('What is my pickup location?')).toEqual({});
+  });
+
   it('does not treat a Tamil memory question as a name statement', () => {
     // "என்னுடைய பெயர் என்ன?" must not write "என்ன?" into customer_name.
     expect(extractStateFromMessage('என்னுடைய பெயர் என்ன?')).toEqual({});

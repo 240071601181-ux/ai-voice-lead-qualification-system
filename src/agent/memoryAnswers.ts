@@ -218,6 +218,85 @@ export const isMemoryQuestion = (content: string): boolean => {
 export const isTamilContent = (content: string): boolean =>
   typeof content === 'string' && /[\u0B80-\u0BFF]/.test(content);
 
+export type TurnLanguage = 'english' | 'tamil' | 'mixed';
+
+/**
+ * Per-turn language of the customer's message. Tamil script decides:
+ * script + Latin letters = natural code-mix, script alone = Tamil,
+ * otherwise English (the default — never inferred from the operator's
+ * locale). Drives both the deterministic greeting and the explicit
+ * per-turn LLM language directive, so small models cannot drift.
+ */
+export const detectTurnLanguage = (content: string): TurnLanguage => {
+  if (typeof content !== 'string') return 'english';
+  const hasTamil = /[\u0B80-\u0BFF]/.test(content);
+  if (!hasTamil) return 'english';
+  return /[A-Za-z]/.test(content) ? 'mixed' : 'tamil';
+};
+
+/** Explicit per-turn language instruction appended to the system prompt. */
+export const languageDirective = (language: TurnLanguage): string => {
+  if (language === 'tamil') {
+    return 'LANGUAGE: The customer wrote in Tamil. Respond in Tamil only (Tamil script).';
+  }
+  if (language === 'mixed') {
+    return 'LANGUAGE: The customer mixed Tamil and English. Respond naturally with the same Tamil-English mix.';
+  }
+  return 'LANGUAGE: The customer wrote in English. Respond in English only.';
+};
+
+const EN_GREETINGS = new Set([
+  'hi',
+  'hii',
+  'hello',
+  'helo',
+  'hey',
+  'greetings',
+  'goodmorning',
+  'goodafternoon',
+  'goodevening',
+]);
+
+const TA_GREETINGS = new Set(['வணக்கம்', 'வணகம்']);
+
+/**
+ * True when the WHOLE message is just a hello — no request, no details.
+ * ("Hi, I need a truck" carries content and takes the normal turn.)
+ * Matched after lowercasing and stripping punctuation/whitespace, with
+ * tolerance for stretched spellings ("hiii", "heyyy").
+ */
+export const isGreetingOnly = (content: string): boolean => {
+  if (typeof content !== 'string') return false;
+  const stripped = content
+    .toLowerCase()
+    .replace(/[?!.,;:\s'"]+/g, '');
+  if (stripped.length === 0 || stripped.length > 20) return false;
+  if (EN_GREETINGS.has(stripped)) return true;
+  if (/^hi+$/.test(stripped) || /^he+y+$/.test(stripped) || /^hello+$/.test(stripped)) {
+    return true;
+  }
+  // Tamil greetings have no case; match against the raw stripped text.
+  const taStripped = content.replace(/[?!.,;:\s'"]+/g, '');
+  return TA_GREETINGS.has(taStripped);
+};
+
+/**
+ * Deterministic greeting: natural, language-matched, customer-specific,
+ * and free of company boilerplate (no invented identity on either side).
+ * `name` is the trusted known name (state first, else linked lead) or null.
+ */
+export const buildGreetingReply = (content: string, name: string | null): string => {
+  const cleanName = typeof name === 'string' && name.trim().length > 0 ? name.trim() : null;
+  if (isTamilContent(content)) {
+    return cleanName
+      ? `வணக்கம் ${cleanName}! உங்கள் shipment-க்கு எப்படி உதவலாம்?`
+      : 'வணக்கம்! உங்கள் shipment-க்கு எப்படி உதவலாம்?';
+  }
+  return cleanName
+    ? `Hello ${cleanName}! How can I help with your shipment today?`
+    : 'Hi! How can I help with your shipment today?';
+};
+
 const formatAnswer = (field: FieldKey, state: MemoryState, tamil: boolean): string | null => {
   switch (field) {
     case 'customer_name': {

@@ -5,7 +5,6 @@ import { AIChatBox } from "@/components/AIChatBox";
 import { Button, Card, TierBadge } from "@/components/app/ui";
 import { MeetingPanel } from "@/components/app/MeetingPanel";
 import {
-  LOGISTICS_EMPTY_COPY,
   QUALIFICATION_EMPTY_COPY,
   conversationErrorCopy,
   displayCustomerName,
@@ -16,8 +15,10 @@ import {
   toLogisticsStateRows,
   toVisibleMessages,
 } from "@/components/app/conversationView";
+import { useIsMutating, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/errors";
 import {
+  conversationKeys,
   useAbandonConversationMutation,
   useCompleteConversationMutation,
   useConversationMessagesQuery,
@@ -118,25 +119,54 @@ export function QualificationPanel({ conversationId }: { conversationId: string 
   );
 }
 
-function LogisticsStatePanel({ conversationId }: { conversationId: string }) {
+export function LogisticsStatePanel({ conversationId }: { conversationId: string }) {
   const state = useConversationStateQuery(conversationId);
-  const rows = useMemo(() => toLogisticsStateRows(state.data ?? null), [state.data]);
+  // Phase 19 — conversation-derived summary in fixed sections. Every slot
+  // shows its persisted value or an explicit "Not provided": nothing is
+  // invented, and the panel refreshes from the state query after each send.
+  const groups = useMemo(() => {
+    const byLabel = new Map(
+      toLogisticsStateRows(state.data ?? null).map((row) => [row.label, row.value])
+    );
+    const shown = (value: string | undefined): string =>
+      value === undefined || value === "—" || value.trim().length === 0
+        ? "Not provided"
+        : value;
+    const pick = (...labels: string[]) =>
+      labels.map((label) => ({ label, value: shown(byLabel.get(label)) }));
+    return [
+      { heading: "CUSTOMER", rows: pick("Customer") },
+      {
+        heading: "SHIPMENT",
+        rows: pick("Pickup", "Destination", "Vehicle", "Cargo", "Weight", "Dimensions", "Delivery date"),
+      },
+      { heading: "COMMERCIAL", rows: pick("Budget") },
+      { heading: "INTENT", rows: pick("Urgency", "Booking intent") },
+      { heading: "ADDITIONAL", rows: pick("Notes") },
+    ];
+  }, [state.data]);
   return (
     <Card className="panel-card" data-testid="logistics-panel">
       <div className="panel-heading"><span className="panel-title">Logistics details</span></div>
       {state.isPending ? (
         <p className="panel-note">Loading details…</p>
-      ) : rows.length === 0 ? (
-        <p className="panel-note">{LOGISTICS_EMPTY_COPY}</p>
       ) : (
-        <dl className="state-list">
-          {rows.map((row) => (
-            <div key={row.label} className="state-row">
-              <dt>{row.label}</dt>
-              <dd>{row.value}</dd>
+        <div className="state-groups">
+          {groups.map((group) => (
+            <div key={group.heading}>
+              <p className="panel-subheading">{group.heading}</p>
+              <dl className="state-list">
+                {group.rows.map((row) => (
+                  <div key={row.label} className="state-row">
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
           ))}
-        </dl>
+          <p className="panel-note">Source: this conversation.</p>
+        </div>
       )}
       {state.isError ? (
         <p className="panel-error">
@@ -227,6 +257,7 @@ function ConversationDetailPage() {
 
   const detail = useConversationQuery(id);
   const messages = useConversationMessagesQuery(id, 100);
+  const queryClient = useQueryClient();
   // Shared cache with LogisticsStatePanel: supplies the customer_name
   // fallback for the header without an extra endpoint.
   const headerState = useConversationStateQuery(id);
@@ -242,12 +273,71 @@ function ConversationDetailPage() {
   // The failed text itself: the composer clears on submit, so the page keeps
   // a copy to power the explicit Retry (the old "kept above" note was false).
   const [failedContent, setFailedContent] = useState<string | null>(null);
+  const sendKey = useMemo(() => conversationKeys.sendMessage(id ?? ""), [id]);
+
+  /**
+   * Navigation-durable send state (global MutationCache, not mount state):
+   * - `orphanPending`: a send fired before navigating away is still running.
+   *   The typing indicator and composer lock follow it, and the guard below
+   *   blocks overlapping sends until it settles.
+   * - `cachedFailure`: the latest failed send for this conversation, so a
+   *   return after a failure still offers the truthful same-key Retry.
+   * History itself always comes from the messages query (server truth).
+   */
+  const orphanPendingCount = useIsMutating({ mutationKey: sendKey });
+  const sendPending = send.isPending || orphanPendingCount > 0;
+  const cachedFailures = useMutationState({
+    filters: { mutationKey: sendKey, status: "error" },
+    select: (mutation) => {
+      const vars = (mutation.state.variables ?? {}) as {
+        content?: unknown;
+        idempotencyKey?: unknown;
+      };
+      if (typeof vars.content !== "string") return null;
+      const err = mutation.state.error;
+      return {
+        content: vars.content,
+        idempotencyKey:
+          typeof vars.idempotencyKey === "string" ? vars.idempotencyKey : null,
+        submittedAt: mutation.state.submittedAt,
+        message:
+          err instanceof ApiError ? conversationErrorCopy(err) : "Couldn’t send your message.",
+        unauthorized: err instanceof ApiError && err.kind === "unauthorized",
+      };
+    },
+  });
+  const cachedFailure =
+    [...cachedFailures].reverse().find((entry) => entry !== null) ?? null;
+  /**
+   * Stale-error suppression: a client-side failure (e.g. timeout) can still
+   * mean the backend completed. If a user message with the failed content
+   * was persisted at/after submit, the send landed — hide the retry instead
+   * of inviting a confusing duplicate. Same-key retry stays safe regardless
+   * (the server replays completed turns).
+   */
+  const failureCompletedServerSide = useMemo(() => {
+    if (!cachedFailure || !messages.data?.messages) return false;
+    const cutoff = cachedFailure.submittedAt - 2000;
+    return messages.data.messages.some(
+      (m) =>
+        m.role === "user" &&
+        m.content === cachedFailure.content &&
+        new Date(m.created_at).getTime() >= cutoff
+    );
+  }, [cachedFailure, messages.data]);
+  const visibleCachedFailure = failureCompletedServerSide ? null : cachedFailure;
+  const effectiveSendError = sendError ?? visibleCachedFailure?.message ?? null;
+  const effectiveSendUnauthorized =
+    sendUnauthorized || visibleCachedFailure?.unauthorized === true;
+  const effectiveFailedContent = failedContent ?? visibleCachedFailure?.content ?? null;
+  const effectiveRetryKey =
+    failedSendKey.current ?? visibleCachedFailure?.idempotencyKey ?? undefined;
 
   const conversation = detail.data?.conversation ?? null;
   const lead = detail.data?.lead ?? null;
   const status = conversation?.status;
   const customerName = displayCustomerName(lead?.name, headerState.data?.customer_name);
-  const composerDisabled = isComposerDisabled(status) || send.isPending;
+  const composerDisabled = isComposerDisabled(status) || sendPending;
   const messageCount = detail.data?.messageCount ?? messages.data?.messages?.length ?? 0;
   const latestActivity = conversation?.updated_at ?? conversation?.created_at ?? null;
 
@@ -263,7 +353,9 @@ function ConversationDetailPage() {
   );
 
   const handleSend = (content: string, idempotencyKey?: string) => {
-    if (sendInFlight.current || send.isPending) return;
+    // sendPending covers this mount AND an orphaned send from before a
+    // navigation: never overlap turns, never duplicate rows.
+    if (sendInFlight.current || sendPending) return;
     sendInFlight.current = true;
     setSendError(null);
     setSendUnauthorized(false);
@@ -271,9 +363,22 @@ function ConversationDetailPage() {
     send.mutate(
       { content, idempotencyKey: key },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           failedSendKey.current = null;
           setFailedContent(null);
+          // The landed content supersedes settled error entries for the
+          // same text (e.g. a same-key retry after returning): remove them
+          // so a stale Retry never lingers next to the completed result.
+          const landed = result.userMessage.content;
+          const mutationCache = queryClient.getMutationCache();
+          mutationCache
+            .findAll({ mutationKey: sendKey, status: "error" })
+            .forEach((mutation) => {
+              const vars = (mutation.state.variables ?? {}) as {
+                content?: unknown;
+              };
+              if (vars.content === landed) mutationCache.remove(mutation);
+            });
         },
         onError: (error) => {
           // Session auth refreshes once-and-retries inside the service; a
@@ -292,7 +397,7 @@ function ConversationDetailPage() {
   };
 
   const handleRetrySend = (content: string) => {
-    handleSend(content, failedSendKey.current ?? undefined);
+    handleSend(content, effectiveRetryKey);
   };
 
   if (!id) {
@@ -355,7 +460,7 @@ function ConversationDetailPage() {
                 <AIChatBox
                   messages={visible}
                   onSendMessage={handleSend}
-                  isLoading={send.isPending}
+                  isLoading={sendPending}
                   disabled={isComposerDisabled(status)}
                   placeholder={
                     isComposerDisabled(status)
@@ -375,20 +480,20 @@ function ConversationDetailPage() {
                   }
                 />
               )}
-              {sendError ? (
+              {effectiveSendError ? (
                 <p className="panel-error chat-error" role="alert">
-                  <AlertTriangle size={14} /> {sendError}{" "}
-                  {sendUnauthorized ? (
+                  <AlertTriangle size={14} /> {effectiveSendError}{" "}
+                  {effectiveSendUnauthorized ? (
                     <button className="link-btn" onClick={() => navigate("/login")}>
                       Sign in
                     </button>
-                  ) : failedContent ? (
+                  ) : effectiveFailedContent ? (
                     <button
                       className="link-btn"
-                      disabled={send.isPending}
-                      onClick={() => handleRetrySend(failedContent)}
+                      disabled={sendPending}
+                      onClick={() => handleRetrySend(effectiveFailedContent)}
                     >
-                      {send.isPending ? "Retrying…" : "Retry send"}
+                      {sendPending ? "Retrying…" : "Retry send"}
                     </button>
                   ) : null}
                 </p>

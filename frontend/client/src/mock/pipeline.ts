@@ -32,6 +32,12 @@ export type Lead = {
   budget: string;
   tier: "HOT" | "WARM" | "COLD";
   score: number;
+  /**
+   * Phase 19 — true only for backend rows adapted without a persisted
+   * qualification. The list renders "—" instead of the tier/score so an
+   * unscored lead never wears a fabricated badge. Mock rows omit it.
+   */
+  signalUnknown?: boolean;
   status: string;
   last: string;
   created: string;

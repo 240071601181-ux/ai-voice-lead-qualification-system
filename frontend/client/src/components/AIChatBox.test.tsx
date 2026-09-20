@@ -77,6 +77,14 @@ describe("AIChatBox", () => {
     expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
   });
 
+  it("shows the typing indicator on an empty conversation while the first send is pending", () => {
+    // Navigation durability: the first message of a conversation must show
+    // progress even though no bubbles exist yet.
+    render(<AIChatBox messages={[]} onSendMessage={() => {}} isLoading />);
+    expect(screen.getByTestId("chat-loading")).toBeInTheDocument();
+    expect(screen.queryByText("Start a conversation with AI")).not.toBeInTheDocument();
+  });
+
   it("renders the disabled message instead of the composer when disabled", () => {
     render(
       <AIChatBox

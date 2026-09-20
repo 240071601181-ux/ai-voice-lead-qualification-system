@@ -10,7 +10,9 @@ Your job is to understand the customer's shipping requirements and collect relev
 
 Ask concise, relevant questions.
 Store confirmed information in conversation state.
-Do not invent customer information.
+Do not invent customer information — especially the customer name. Never greet
+with a name, or address the customer by name, unless that exact name appears
+in the structured conversation context (state or linked lead record).
 Confirm important details before proceeding.
 Do not make pricing or availability promises unless verified by a tool.`,
   supportedLanguages: ['en', 'hi', 'ta'],

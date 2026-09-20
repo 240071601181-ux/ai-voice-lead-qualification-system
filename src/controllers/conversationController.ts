@@ -13,7 +13,8 @@ import {
 } from '../agent/fallbackResponse';
 import { getChatMaxContextMessages, getChatMaxMessageLength } from '../config';
 import { extractAndPersistTextState } from '../services/conversationStateService';
-import { findMemoryAnswers } from '../agent/memoryAnswers';
+import { extractContactFromMessage } from '../agent/textStateExtraction';
+import { buildGreetingReply, findMemoryAnswers, isGreetingOnly } from '../agent/memoryAnswers';
 import { normalizeIdempotencyKey, runIdempotent } from '../services/messageIdempotency';
 import {
   getQualificationByConversationId,
@@ -284,18 +285,107 @@ export const postConversationMessageHandler = async (
       });
     }
 
-    // Multi-turn history window: chronological, bounded by
-    // CHAT_MAX_CONTEXT_MESSAGES. Older persisted rows are retained in the
-    // database; only the LLM input is truncated (token safety).
+    // Phase 19: progressive lead storage from explicitly stated contact
+    // details. Only the CURRENT conversation's linked lead is ever touched,
+    // and only with values the customer actually typed (email/phone). An
+    // explicit statement wins (fills empty fields, corrects changed ones);
+    // silence never overwrites. Shipment slots stay in conversation state —
+    // never in lead columns. Failures never break the chat turn.
+    try {
+      if (conversation.lead_id) {
+        const contact = extractContactFromMessage(content);
+        const wanted: Record<string, string> = {};
+        if (contact.email) wanted.email = contact.email;
+        if (contact.phone) wanted.phone = contact.phone;
+        if (Object.keys(wanted).length > 0) {
+          const lead = await leadRepository.findById(conversation.lead_id);
+          if (lead) {
+            const updates: Record<string, string> = {};
+            for (const [field, value] of Object.entries(wanted)) {
+              const current =
+                field === 'email' ? lead.email : field === 'phone' ? lead.phone : null;
+              if (
+                (typeof current !== 'string' || current.trim().length === 0) ||
+                current.trim().toLowerCase() !== value.toLowerCase()
+              ) {
+                updates[field] = value;
+              }
+            }
+            if (Object.keys(updates).length > 0) {
+              await leadRepository.update(conversation.lead_id, updates);
+              logger.info('Conversation turn stored confirmed contact on linked lead', {
+                conversationId: conversation.id,
+                leadId: conversation.lead_id,
+                fields: Object.keys(updates),
+              });
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      logger.error('Contact storage error (chat continues)', {
+        conversationId: conversation.id,
+        error: err?.message,
+      });
+    }
     // Deterministic memory answers: a message composed only of factual
     // state questions with known values is answered directly from the
     // freshly extracted state — no LLM turn, no RAG, exactly the requested
     // fields. Anything else (unknown fields, mixed content, summaries)
     // flows through the normal turn below.
+    // Trusted customer-name fallback (read-only): until the conversation
+    // learns a name into state, the linked lead record answers
+    // "What is my name?" — never invented, never a placeholder. An explicit
+    // state value always wins over the lead (latest correction wins).
+    // Trusted customer name for this turn (read-only): conversation state
+    // first, else the linked lead record. Powers the deterministic greeting
+    // and the memory fallback below — never invented, never a placeholder.
+    // An explicit state value always wins over the lead.
+    let knownName = '';
+    try {
+      const freshState = await findConversationStateByConversationId(conversation.id);
+      const stateName =
+        freshState && typeof freshState.customer_name === 'string'
+          ? freshState.customer_name.trim()
+          : '';
+      if (stateName) {
+        knownName = stateName;
+      } else if (conversation.lead_id) {
+        const lead = await leadRepository.findById(conversation.lead_id);
+        const leadName = lead && typeof lead.name === 'string' ? lead.name.trim() : '';
+        if (leadName.length > 0) knownName = leadName;
+      }
+    } catch (err: any) {
+      logger.error('Name lookup failed; continuing without a known name', {
+        conversationId: conversation.id,
+        error: err?.message,
+      });
+    }
+    // Deterministic greeting: a bare hello is answered in the customer's
+    // language with the trusted name when known — no LLM turn (so a small
+    // model can neither drift language nor invent company boilerplate),
+    // no RAG, exactly one natural line.
+    if (isGreetingOnly(content)) {
+      const assistantMessage = await conversationMessageService.appendMessage({
+        conversationId: conversation.id,
+        role: 'assistant',
+        content: buildGreetingReply(content, knownName || null),
+        metadata: { greeting: true },
+      });
+      logger.info('Conversation message answered with greeting (no LLM turn)', {
+        conversationId: conversation.id,
+        leadId: conversation.lead_id ?? null,
+      });
+      return { conversation, userMessage, assistantMessage, qualification: null };
+    }
     let memoryContent: string | null = null;
     try {
       const freshState = await findConversationStateByConversationId(conversation.id);
-      const lines = findMemoryAnswers(content, freshState as any);
+      let memoryState = freshState as any;
+      if (!memoryState?.customer_name && knownName) {
+        memoryState = { ...(memoryState ?? {}), customer_name: knownName };
+      }
+      const lines = findMemoryAnswers(content, memoryState);
       if (lines) memoryContent = lines.join('\n');
     } catch (err: any) {
       logger.error('Memory-answer state lookup failed; continuing with LLM turn', {

@@ -5,7 +5,6 @@ import { Button, Card } from "@/components/app/ui";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NotFoundState } from "@/components/app/NotFoundState";
 import { useToast } from "@/layouts/AppLayout";
-import { findLead } from "@/mock/details";
 import { useLeadDetail, useUpdateLeadMutation } from "@/api/hooks/useLeads";
 import { getUserMessage } from "@/api/errors";
 import type { Lead as ApiLead } from "@/api/types";
@@ -23,20 +22,13 @@ function initialFromApi(api: ApiLead): FormValues {
   };
 }
 
-function initialFromMock(id: string): FormValues {
-  const mock = findLead(id);
-  return { source: "", name: mock?.name ?? "", phone: mock?.phone ?? "", email: "", status: mock?.status ?? "" };
-}
-
 function EditForm({
   id,
   initial,
-  isDemo,
   onSaved,
 }: {
   id: string;
   initial: FormValues;
-  isDemo: boolean;
   onSaved: () => void;
 }) {
   const { notify } = useToast();
@@ -102,9 +94,7 @@ function EditForm({
           <span className="section-kicker">SHIPPER PROFILE</span>
           <h2>Edit lead</h2>
           <p>
-            {isDemo
-              ? "Demo lead — not in the backend yet. Saving attempts the real API and may report not-found; your entries are preserved so you can retry."
-              : "Changes are saved to the backend via PATCH /api/v1/leads/:id."}
+            Changes are saved to the backend via PATCH /api/v1/leads/:id.
           </p>
           <div className="form-grid">
             <label>Full name<input value={values.name} onChange={set("name")} placeholder="e.g. Arjun Rao" />{err("name")}</label>
@@ -133,7 +123,7 @@ export default function LeadEditPage() {
   const params = useParams();
   const [, navigate] = useLocation();
   const id = params.id ?? "";
-  const detail = useLeadDetail(id, findLead(id));
+  const detail = useLeadDetail(id);
 
   const backToDetail = () => navigate(`/leads/${id}`);
 
@@ -172,17 +162,14 @@ export default function LeadEditPage() {
     );
   }
 
-  const initial = detail.source === "api" && detail.apiLead
-    ? initialFromApi(detail.apiLead)
-    : initialFromMock(id);
+  const initial = initialFromApi(detail.apiLead);
   return (
     <>
       <button className="back-link" onClick={backToDetail}><ChevronLeft size={15} />Back to lead</button>
       <EditForm
-        key={`${detail.source}:${id}`}
+        key={`api:${id}`}
         id={id}
         initial={initial}
-        isDemo={detail.source === "mock"}
         onSaved={backToDetail}
       />
     </>

@@ -138,12 +138,19 @@ describe('Tamil message-send integration', () => {
   };
 
   it('persists Tamil exactly and replies once (1 user + 1 assistant)', async () => {
+    const llmModule = require('../agent/llm') as typeof import('../agent/llm');
+    const providerSpy = jest.spyOn(llmModule, 'getLlmProvider');
+    providerSpy.mockClear();
     const res = await postMessage('வணக்கம்', 'key-ta-basic');
     expect(res.status).toBe(201);
     expect(res.body.data.userMessage.content).toBe('வணக்கம்');
     expect(Array.from(res.body.data.userMessage.content)).toEqual(Array.from('வணக்கம்'));
-    expect(typeof res.body.data.assistantMessage.content).toBe('string');
-    expect(res.body.data.assistantMessage.content.length).toBeGreaterThan(0);
+    // Deterministic Tamil greeting: language-matched, no LLM turn, no RAG.
+    // The suite's stored state already knows சந்தோஷ், so it is used naturally.
+    expect(res.body.data.assistantMessage.content).toBe(
+      'வணக்கம் சந்தோஷ்! உங்கள் shipment-க்கு எப்படி உதவலாம்?'
+    );
+    expect(providerSpy).not.toHaveBeenCalled();
     expect(messageInserts()).toHaveLength(2);
     // The user row reached the repository byte-exact (no sanitization loss).
     expect(insertedParams[0][2]).toBe('வணக்கம்');
