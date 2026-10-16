@@ -1,11 +1,12 @@
 /**
  * Global search page index (pure, no React).
  *
- * Every entry is a REAL application route from `client/src/app/routes.tsx`
- * (labels mirror the sidebar navigation). No backend involved: selecting a
+ * Every entry is a REAL application route from `client/src/app/routes.tsx`.
+ * Results are filtered through the shared route access policy. No backend involved: selecting a
  * page navigates to it. Lead results come separately from the live
  * GET /api/v1/leads search endpoint (never fabricated).
  */
+import { canAccessPath } from "@/app/accessPolicy";
 
 export interface SearchPage {
   label: string;
@@ -20,7 +21,8 @@ export const SEARCH_PAGES: SearchPage[] = [
   { label: "Qualifications", path: "/qualifications", keywords: "qualifications scores tiers hot warm cold" },
   { label: "Follow-ups", path: "/followups", keywords: "followups follow-ups reminders scheduled" },
   { label: "Calendar", path: "/calendar", keywords: "calendar meetings bookings schedule" },
-  { label: "Knowledge Base", path: "/knowledge", keywords: "knowledge base documents search ingest" },
+  { label: "Knowledge Base", path: "/knowledge", keywords: "knowledge base documents search" },
+  { label: "Ingest knowledge document", path: "/knowledge/ingest", keywords: "knowledge base upload ingest document" },
   { label: "AI Agent", path: "/ai-agent", keywords: "ai agent assistant configuration" },
   { label: "CRM", path: "/crm", keywords: "crm sync contacts hubspot" },
   { label: "WhatsApp", path: "/whatsapp", keywords: "whatsapp messages templates" },
@@ -33,10 +35,11 @@ export const SEARCH_PAGES: SearchPage[] = [
 ];
 
 /** Case-insensitive substring match over label, path, and keywords. */
-export function filterSearchPages(query: string): SearchPage[] {
+export function filterSearchPages(query: string, role: unknown): SearchPage[] {
+  const allowed = SEARCH_PAGES.filter((page) => canAccessPath(role, page.path));
   const q = query.trim().toLowerCase();
-  if (!q) return SEARCH_PAGES;
-  return SEARCH_PAGES.filter((page) =>
+  if (!q) return allowed;
+  return allowed.filter((page) =>
     `${page.label} ${page.path} ${page.keywords}`.toLowerCase().includes(q)
   );
 }

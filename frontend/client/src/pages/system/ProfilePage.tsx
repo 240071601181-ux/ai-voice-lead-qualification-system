@@ -95,6 +95,9 @@ export default function ProfilePage() {
               <p data-testid="profile-email">{userEmail}</p>
               <div className="conversation-meta">
                 <span className="status-chip status-active">Active account</span>
+                <span className="meta-chip" data-testid="profile-role">
+                  Role: {user.role === "ADMIN" ? "ADMIN" : "USER"}
+                </span>
               </div>
             </div>
             <div className="hero-actions">

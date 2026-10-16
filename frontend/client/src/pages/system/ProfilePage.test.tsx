@@ -2,6 +2,9 @@
 /**
  * Phase 17 — ProfilePage tests (real page + real hooks, network boundary
  * mocked at fetch only).
+ * Phase 5 — session fixtures carry the canonical backend role: the session
+ * layer fail-closes (signed-out) when the role is missing or invalid, so a
+ * role-less fixture can never establish a session.
  *
  * Verifies the real authenticated user renders (name/email/initials, never
  * Maya Singh/MS/Acme), missing fields fall back truthfully, and saving the
@@ -27,6 +30,7 @@ const santhosh = {
   id: "user-1",
   email: "santhosh@example.com",
   name: "Santhosh",
+  role: "USER",
   status: "active",
 };
 
@@ -90,6 +94,21 @@ describe("ProfilePage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByTestId("profile-name")).toHaveTextContent("Unnamed User"));
     expect(screen.getByText("U")).toBeInTheDocument();
+  });
+
+  it("shows the authenticated role, and fails closed when the role is missing", async () => {
+    mockSession({ ...santhosh, role: "ADMIN" });
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId("profile-role")).toHaveTextContent("Role: ADMIN"));
+    cleanup();
+    // No canonical role: the session layer rejects the payload, so the
+    // profile renders the signed-out state — never a defaulted role.
+    const { role: _dropped, ...roleless } = santhosh;
+    mockSession(roleless);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("You are signed out.")).toBeInTheDocument());
+    expect(screen.queryByTestId("profile-role")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("profile-name")).not.toBeInTheDocument();
   });
 
   it("saves the display name with only the name field", async () => {

@@ -113,7 +113,8 @@ describe("AppLayout shell", () => {
     renderShell();
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
     expect(screen.queryByText("AI Agent")).not.toBeInTheDocument();
-    expect(screen.queryByText("Knowledge Base")).not.toBeInTheDocument();
+    // Knowledge browsing is shared (only /knowledge/ingest is ADMIN-only),
+    // so the Knowledge Base entry stays visible to USER.
     expect(screen.getByText("Leads")).toBeInTheDocument();
     expect(screen.getByText("Conversations")).toBeInTheDocument();
     expect(screen.getByText("Knowledge Base")).toBeInTheDocument();

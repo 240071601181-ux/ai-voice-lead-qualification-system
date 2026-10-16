@@ -15,9 +15,11 @@ import { getUserMessage } from "@/api/errors";
  */
 export default function KnowledgeIngestPage() {
   const { notify } = useToast();
-  const [title, setTitle] = useState("Chennai → Mumbai rate card");
-  const [corridor, setCorridor] = useState("Chennai → Mumbai");
-  const [file, setFile] = useState("rate-card-sep.pdf");
+  // Phase 4 — no prefilled demo values: every field starts empty (or on a
+  // neutral option) so sample rate cards are never submitted by accident.
+  const [title, setTitle] = useState("");
+  const [corridor, setCorridor] = useState("");
+  const [file, setFile] = useState("");
   const [language, setLanguage] = useState("English");
   const [content, setContent] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);

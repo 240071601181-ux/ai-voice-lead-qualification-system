@@ -5,11 +5,11 @@
  *   React Page -> React Hook / Service -> API Client -> HTTP -> Express backend
  *
  * Components must import from "@/api" (never fetch/axios directly).
- * Mock services (`@/mock/*`) and real API services (`@/api/*`) stay
- * separate; `VITE_USE_MOCK_DATA` decides which a page uses (future phases).
+ * Every page reads the backend through these services (Phase 4 removed the
+ * last mock data source; Phase 6 removed the legacy mock switch).
  */
 
-export { frontendEnv, isMockDataEnabled } from "./env";
+export { frontendEnv } from "./env";
 export { httpClient, request } from "./httpClient";
 export type { HttpMethod, RequestOptions } from "./httpClient";
 export { ApiError, errorKindForStatus, getCalendarBookingErrorMessage, getUserMessage, CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE } from "./errors";

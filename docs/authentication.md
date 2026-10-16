@@ -73,6 +73,34 @@ error. Set a long random `AUTH_JWT_SECRET` in the backend `.env` (see
 `.env.example`) and restart the server. This is operational configuration,
 never code, and the secret must never be committed or shipped to the browser.
 
+## Registration and account recovery
+
+Public registration requires a name, valid email address, and password from
+8 to 128 characters. The server validates these values and always creates a
+`USER`; client-supplied roles are ignored. Registration creates a user
+account only. The current schema and product are single-tenant and do not
+create organizations or memberships from the signup company name, so the
+signup UI does not collect that unused field. Promote an existing account
+using the controlled `npm run admin:promote -- <existing-account-email>`
+deployment command.
+
+The refresh cookie currently lasts up to seven days; there is no separate
+Remember Me mode. The access token remains in frontend module memory and the
+refresh credential remains in the HTTP-only cookie.
+
+Password recovery is not implemented: this repository has no reset-token
+schema, reset endpoints, or configured email delivery provider. The UI says
+that a reset link cannot be issued and directs users to their administrator;
+the reset URL does not accept or change a password. Configure an email
+provider and implement a complete expiring, single-use token flow before
+advertising self-service password recovery.
+
+Email verification is not required by this product. Registration immediately
+issues a session and no application route depends on a verified-email flag.
+There is no verification schema, endpoint, or mail provider. The legacy
+verification URL explains this policy and does not claim to send or verify a
+code.
+
 ## Security assumptions
 
 - `AUTH_JWT_SECRET` and `CHAT_JWT_SECRET` are long, random, server-only,

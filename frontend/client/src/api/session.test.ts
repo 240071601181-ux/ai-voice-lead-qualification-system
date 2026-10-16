@@ -28,7 +28,7 @@ function jsonResponse(status: number, body: unknown): Response {
 const loginPayload = (accessToken = "access-1") => ({
   success: true,
   data: {
-    user: { id: "user-1", email: "a@example.com", name: "A" },
+    user: { id: "user-1", email: "a@example.com", name: "A", role: "USER" },
     accessToken,
     accessExpiresAt: new Date(Date.now() + 900_000).toISOString(),
   },
@@ -69,7 +69,7 @@ describe("backend session", () => {
       jsonResponse(409, { success: false, error: { message: "An account with this email already exists", code: 409 } })
     );
     await expect(
-      register({ email: "n@example.com", password: "password-123" })
+      register({ email: "n@example.com", password: "password-123", name: "N" })
     ).rejects.toMatchObject({ kind: "conflict" });
   });
 
@@ -143,5 +143,15 @@ describe("backend session", () => {
     await login({ email: "a@example.com", password: "password-123" });
     await restoreSession();
     expect(writes).toEqual([]);
+  });
+
+  it("rejects a backend session without a canonical role and clears module credentials", async () => {
+    const payload = loginPayload();
+    payload.data.user.role = "OPERATOR" as "USER";
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, payload)));
+    await expect(login({ email: "a@example.com", password: "password-123" }))
+      .rejects.toMatchObject({ kind: "malformed" });
+    expect(getSessionUser()).toBeNull();
+    expect(getAccessToken()).toBeNull();
   });
 });

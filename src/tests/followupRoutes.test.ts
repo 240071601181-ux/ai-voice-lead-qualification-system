@@ -22,6 +22,8 @@ jest.mock('../repositories/userRepository', () => {
   };
 });
 
+const userRepo = () => require('../repositories/userRepository') as any;
+
 jest.mock('../services/whatsapp/whatsappSender', () => ({
   sendWhatsappOnce: jest.fn().mockResolvedValue({ ok: true })
 }));
@@ -150,5 +152,31 @@ describe('Follow-up endpoints', () => {
     (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [] });
     const missing = await authedGet('/api/v1/followups/does-not-exist');
     expect(missing.status).toBe(404);
+  });
+
+  it('requires ADMIN for execute-due while preserving USER follow-up workflows', async () => {
+    const anonymous = await request(app).post('/api/v1/followups/execute-due').send({});
+    expect(anonymous.status).toBe(401);
+
+    userRepo().findUserById.mockResolvedValue({ id: 'user-1', email: 'user@example.com', role: 'USER', status: 'active' });
+    const denied = await request(app).post('/api/v1/followups/execute-due')
+      .set('Authorization', bearerFor({ id: 'user-1', email: 'user@example.com' })).send({});
+    expect(denied.status).toBe(403);
+
+    userRepo().findUserById.mockResolvedValue({ id: 'user-1', email: 'user@example.com', role: 'USER', status: 'active' });
+    mockScheduleReads();
+    const scheduled = await request(app).post('/api/v1/followups/schedule')
+      .set('Authorization', bearerFor({ id: 'user-1', email: 'user@example.com' }))
+      .send({ callId: 'call-1', action: 'crm_followup' });
+    expect(scheduled.status).toBe(201);
+
+    // Scheduling/listing/cancellation remain available to ordinary users.
+    userRepo().findUserById.mockResolvedValue({ id: 'admin-user-1', email: 'admin@example.com', role: 'ADMIN', status: 'active' });
+    (pool.query as jest.Mock).mockImplementation((sql: string) => {
+      if (/FROM follow_ups/.test(String(sql))) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [] });
+    });
+    const authorized = await authedPost('/api/v1/followups/execute-due').send({});
+    expect(authorized.status).toBe(200);
   });
 });

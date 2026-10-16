@@ -30,7 +30,9 @@ describe("GlobalSearch access and controls", () => {
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
     expect(screen.getByText("No results found.")).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    // Browser-realistic Escape: dispatched on the focused input so it
+    // bubbles to the dialog dismiss handler, which closes the palette.
+    fireEvent.keyDown(screen.getByPlaceholderText("Search leads, pages…"), { key: "Escape" });
     expect(screen.queryByPlaceholderText("Search leads, pages…")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /search anything/i }));
     await user.clear(screen.getByPlaceholderText("Search leads, pages…"));
@@ -54,7 +56,8 @@ describe("GlobalSearch access and controls", () => {
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(await screen.findByPlaceholderText("Search leads, pages…")).toBeInTheDocument();
     expect(screen.getByText("Leads")).toBeInTheDocument();
-    fireEvent.keyDown(window, { key: "Escape" });
+    // Empty query: a single Escape on the focused input dismisses the dialog.
+    fireEvent.keyDown(screen.getByPlaceholderText("Search leads, pages…"), { key: "Escape" });
     expect(screen.queryByPlaceholderText("Search leads, pages…")).not.toBeInTheDocument();
   });
 });

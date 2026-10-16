@@ -78,8 +78,10 @@ describe("AuthScreen session role", () => {
 
   async function signInAs(email: string) {
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText("you@company.com"), email);
-    await user.type(screen.getByPlaceholderText("Enter your password"), "password-123456");
+    // Stable accessible-name queries matching the production labels
+    // (the inputs carry no placeholders by design).
+    await user.type(screen.getByLabelText("Work email"), email);
+    await user.type(screen.getByLabelText("Password"), "password-123456");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
   }
 

@@ -112,27 +112,38 @@ describe('Phase 11: authentication API', () => {
     mockUsers({ 'taken@example.com': userA });
     const dup = await request(app)
       .post('/api/v1/auth/register')
-      .send({ email: 'taken@example.com', password: 'password-123' });
+      .send({ email: 'taken@example.com', password: 'password-123', name: 'New User' });
     expect(dup.status).toBe(409);
     const badEmail = await request(app)
       .post('/api/v1/auth/register')
-      .send({ email: 'not-an-email', password: 'password-123' });
+      .send({ email: 'not-an-email', password: 'password-123', name: 'New User' });
     expect(badEmail.status).toBe(400);
     const short = await request(app)
       .post('/api/v1/auth/register')
-      .send({ email: 'x@example.com', password: 'short' });
+      .send({ email: 'x@example.com', password: 'short', name: 'New User' });
     expect(short.status).toBe(400);
+    const missingName = await request(app)
+      .post('/api/v1/auth/register')
+      .send({ email: 'x@example.com', password: 'password-123' });
+    expect(missingName.status).toBe(400);
   });
 
   it('logs in with valid credentials and rejects wrong passwords without enumeration', async () => {
     const passwordHash = await bcrypt.hash('correct-horse', 4);
-    mockUsers({ 'a@example.com': { ...userA, password_hash: passwordHash } });
+    mockUsers({ 'a@example.com': { ...userA, role: 'USER', password_hash: passwordHash } });
     const ok = await request(app)
       .post('/api/v1/auth/login')
       .send({ email: 'a@example.com', password: 'correct-horse' });
     expect(ok.status).toBe(200);
     expect(ok.body.data.user).toMatchObject({ id: 'user-aaa', email: 'a@example.com' });
     expect(ok.body.data.user.password_hash).toBeUndefined();
+
+    mockUsers({ 'admin@example.com': { ...userA, email: 'admin@example.com', role: 'ADMIN', password_hash: passwordHash } });
+    const adminLogin = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: 'admin@example.com', password: 'correct-horse' });
+    expect(adminLogin.status).toBe(200);
+    expect(adminLogin.body.data.user.role).toBe('ADMIN');
 
     const wrong = await request(app)
       .post('/api/v1/auth/login')
@@ -143,6 +154,10 @@ describe('Phase 11: authentication API', () => {
       .send({ email: 'nobody@example.com', password: 'wrong-password' });
     expect(unknown.status).toBe(401);
     expect(unknown.body.error.message).toBe(wrong.body.error.message);
+    const invalidEmail = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: 'not-an-email', password: 'wrong-password' });
+    expect(invalidEmail.status).toBe(400);
   });
 
   it('fail-closes with a truthful, leak-free 500 when no secret is configured', async () => {
@@ -226,6 +241,38 @@ describe('Phase 11: authentication API', () => {
       .set('Cookie', 'mad_rt=presented-refresh-token');
     expect(logout.status).toBe(200);
     expect(logout.body.data).toEqual({ loggedOut: true });
+  });
+
+  it('reports failed server-side logout revocation while clearing the browser cookie', async () => {
+    (pool.query as jest.Mock).mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM user_sessions WHERE refresh_hash')) {
+        return { rows: [{ id: 'sess-revoke-failure', user_id: 'user-aaa', revoked_at: null }] };
+      }
+      if (sql.startsWith('UPDATE user_sessions SET revoked_at')) throw new Error('database unavailable');
+      return { rows: [] };
+    });
+
+    const response = await request(app)
+      .post('/api/v1/auth/logout')
+      .set('Cookie', 'mad_rt=refresh-token-for-test');
+
+    expect(response.status).toBe(500);
+    expect(([] as string[]).concat(response.headers['set-cookie'] || []).join(';')).toContain('mad_rt=;');
+  });
+
+  it('rejects expired and revoked refresh sessions', async () => {
+    for (const session of [
+      { id: 'expired', user_id: 'user-aaa', expires_at: new Date(Date.now() - 1000).toISOString(), revoked_at: null },
+      { id: 'revoked', user_id: 'user-aaa', expires_at: new Date(Date.now() + 60_000).toISOString(), revoked_at: new Date().toISOString() },
+    ]) {
+      (pool.query as jest.Mock).mockImplementation(async (sql: string) =>
+        sql.includes('FROM user_sessions WHERE refresh_hash') ? { rows: [session] } : { rows: [] }
+      );
+      const response = await request(app)
+        .post('/api/v1/auth/refresh')
+        .set('Cookie', 'mad_rt=refresh-token-for-test');
+      expect(response.status).toBe(401);
+    }
   });
 });
 

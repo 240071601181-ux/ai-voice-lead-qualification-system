@@ -97,7 +97,7 @@ const INTEGRATION_LINKS: { label: string; hint: string; path: string }[] = [
  * - Organization mirrors the same persisted row (read-only) with a truthful
  *   "member management coming later" note.
  * - AI agent / Integrations navigate to the real pages. Security signs out
- *   the demo session (same mechanism as Profile). Appearance and member
+ *   the current session (same mechanism as Profile). Appearance and member
  *   management show honest "Coming later" states — no fake toggles, no
  *   silent buttons, no fake success.
  */
@@ -356,7 +356,7 @@ function SettingsPage({ onToast }: { onToast: (message: string) => void }) {
                 <div className="settings-section">
                   <span className="section-kicker">SECURITY</span>
                   <h2>Session</h2>
-                  <p>Signed in to the demo workspace on this device. Advanced controls (SSO, 2FA) — Coming later.</p>
+                  <p>Signed in on this device. Advanced controls (SSO, 2FA) — Coming later.</p>
                   <div style={{ marginTop: 12 }}>
                     <Button icon={ShieldCheck} variant="secondary" onClick={handleSignOut}>
                       Sign out

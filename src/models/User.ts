@@ -1,10 +1,10 @@
 /**
  * Phase 11 — user identity (minimal first-party auth).
- * Phase 20 — internal role model (ADMIN | OPERATOR). Customers are NEVER
+ * Phase 20 — internal role model (ADMIN | USER). Customers are NEVER
  * rows here: they are external leads/conversations behind customer tokens.
  * Password hashes never leave the backend; API layers use SafeUser.
  */
-export type InternalRole = 'ADMIN' | 'OPERATOR';
+export type InternalRole = 'ADMIN' | 'USER';
 
 export interface User {
   id: string; // UUID
@@ -32,10 +32,10 @@ export interface SafeUser {
 /**
  * Phase 20 — normalize any stored value to a known internal role.
  * Unknown/missing values (e.g. rows created before migration 018) safely
- * resolve to OPERATOR: least privilege, never a silent ADMIN.
+ * resolve to USER: least privilege, never a silent ADMIN.
  */
 export const normalizeRole = (value: unknown): InternalRole =>
-  value === 'ADMIN' ? 'ADMIN' : 'OPERATOR';
+  value === 'ADMIN' ? 'ADMIN' : 'USER';
 
 export const toSafeUser = (user: User): SafeUser => ({
   id: user.id,

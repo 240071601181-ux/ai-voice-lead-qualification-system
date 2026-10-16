@@ -7,7 +7,7 @@ const router = Router();
 
 // Phase 20 — internal admin API. Workspace settings are global
 // configuration: reads for every internal role, writes ADMIN only.
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 router.get('/', getWorkspaceSettings);
 router.patch('/', requireRole('ADMIN'), patchWorkspaceSettings);

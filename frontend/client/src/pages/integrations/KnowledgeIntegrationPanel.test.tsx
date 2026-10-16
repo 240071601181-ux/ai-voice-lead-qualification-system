@@ -10,8 +10,11 @@ let role: string | undefined = "USER";
 vi.mock("wouter", () => ({ useLocation: () => ["/knowledge", navigate] }));
 vi.mock("@/api/hooks/useSession", () => ({ useSessionQuery: () => ({ data: role ? { role } : null, isPending: false }) }));
 vi.mock("@/api/hooks/useKnowledge", () => ({
+  // Phase 5 — fixtures match the real diagnostics contract
+  // (KnowledgeDiagnostics always carries a checks array; the backend
+  // builds it unconditionally and backend tests enforce it).
   useKnowledgeDocumentsQuery: () => ({ data: { documents: [], total: 0 }, isPending: false, isError: false, refetch: vi.fn() }),
-  useKnowledgeDiagnosticsQuery: () => ({ data: { status: "ok", documentCount: 0, chunkCount: 0, embeddingProvider: "test", embeddingDimension: 1 }, isPending: false, isError: false, isFetching: false, refetch: vi.fn() }),
+  useKnowledgeDiagnosticsQuery: () => ({ data: { status: "ok", checks: [], documentCount: 0, chunkCount: 0, embeddingProvider: "test", embeddingDimension: 1 }, isPending: false, isError: false, isFetching: false, refetch: vi.fn() }),
   useKnowledgeDocumentQuery: () => ({ data: { document: null, chunks: [] }, isPending: false, isError: false, refetch: vi.fn() }),
 }));
 

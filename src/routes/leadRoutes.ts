@@ -7,7 +7,7 @@ const router = Router();
 
 // Phase 20 — internal admin API: authenticated internal users only.
 // Customers (customer-session cookies, legacy chat tokens) fail closed.
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 router.post('/', createLead);
 router.get('/', listLeads);

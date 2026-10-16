@@ -17,11 +17,14 @@
  */
 import { httpClient } from "./httpClient";
 import { ApiError } from "./errors";
+import { isInternalRole, type InternalRole } from "@/app/accessPolicy";
 
 export interface SessionUser {
   id: string;
   email: string;
   name?: string | null;
+  /** Canonical internal role returned by the backend session endpoints. */
+  role: InternalRole;
 }
 
 interface AuthPayload {
@@ -52,15 +55,28 @@ export function getAccessToken(): string | null {
 }
 
 function applyPayload(payload: AuthPayload): SessionUser {
+  if (!payload || !payload.user || !isInternalRole(payload.user.role) || typeof payload.accessToken !== "string" || !payload.accessToken) {
+    accessToken = null;
+    currentUser = null;
+    dispatchSessionExpired();
+    throw new ApiError("malformed", "Authentication response did not include a valid role");
+  }
   accessToken = payload.accessToken;
   currentUser = payload.user;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("madlead:session-updated", { detail: currentUser }));
+  }
   return payload.user;
+}
+
+function dispatchSessionExpired(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("madlead:session-expired"));
 }
 
 export async function register(input: {
   email: string;
   password: string;
-  name?: string;
+  name: string;
 }): Promise<SessionUser> {
   const payload = await httpClient.post<AuthPayload>("/api/v1/auth/register", input);
   return applyPayload(payload);
@@ -80,6 +96,7 @@ export async function logout(): Promise<void> {
     accessToken = null;
     currentUser = null;
     refreshInFlight = null;
+    dispatchSessionExpired();
   }
 }
 
@@ -97,6 +114,7 @@ export function refreshSessionOnce(): Promise<boolean> {
       } catch {
         accessToken = null;
         currentUser = null;
+        dispatchSessionExpired();
         return false;
       } finally {
         refreshInFlight = null;
@@ -122,6 +140,9 @@ export async function updateProfileName(name: string): Promise<SessionUser> {
   return authedRequest(async (headers) => {
     const user = await httpClient.patch<SessionUser>("/api/v1/auth/me", { name }, { headers });
     currentUser = user;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("madlead:session-updated", { detail: currentUser }));
+    }
     return user;
   });
 }
@@ -140,6 +161,12 @@ export async function authedRequest<T>(fn: (headers: Record<string, string>) => 
   try {
     return await fn(getAuthHeader());
   } catch (error) {
+    if (error instanceof ApiError && error.kind === "forbidden") {
+      // A role may have changed on the backend. Refresh the canonical user
+      // before keeping administrator navigation or cached data on screen.
+      await refreshSessionOnce();
+      throw error;
+    }
     if (!(error instanceof ApiError) || error.kind !== "unauthorized") throw error;
     const refreshed = await refreshSessionOnce();
     if (!refreshed) throw error;

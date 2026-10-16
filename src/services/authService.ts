@@ -150,25 +150,22 @@ const issueSession = async (
 export const registerUser = async (input: {
   email: unknown;
   password: unknown;
-  name?: unknown;
+  name: unknown;
 }): Promise<{ user: SafeUser; accessToken: string; accessExpiresAt: string; refreshToken: string; refreshExpiresAt: string }> => {
   if (!getAuthConfig().jwtSecret) throw authError(500, 'Authentication is not configured');
   const email = normalizeEmail(input.email);
   if (!email) throw authError(400, 'A valid email address is required');
   const password = validatePassword(input.password);
   if (!password) throw authError(400, 'Password must be between 8 and 128 characters');
-  const name =
-    typeof input.name === 'string' && input.name.trim().length > 0
-      ? input.name.trim().slice(0, MAX_NAME_LEN)
-      : null;
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (!name) throw authError(400, 'Full name is required');
+  if (name.length > MAX_NAME_LEN) throw authError(400, 'Name must be 255 characters or fewer');
   const existing = await findUserByEmail(email);
   if (existing) throw authError(409, 'An account with this email already exists');
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-  // Phase 20 — public registration never mints administrators: every new
-  // internal user starts as OPERATOR unless the deployer explicitly named
-  // this address BOOTSTRAP_ADMIN_EMAIL (documented bootstrap mechanism).
-  const bootstrap = (process.env.BOOTSTRAP_ADMIN_EMAIL || '').trim().toLowerCase();
-  const role = bootstrap.length > 0 && bootstrap === email ? 'ADMIN' : 'OPERATOR';
+  // Public signup can never grant elevated privileges. Admins are promoted
+  // through the deployment-only CLI after account ownership is verified.
+  const role = 'USER';
   try {
     const user = await createUser({ email, password_hash: passwordHash, name, role });
     return issueSession(user);
@@ -218,13 +215,9 @@ export const refreshSession = async (
 };
 
 export const logoutSession = async (refreshToken: string | null | undefined): Promise<void> => {
-  try {
-    if (!refreshToken || typeof refreshToken !== 'string') return;
-    const session = await findSessionByRefreshHash(hashRefreshToken(refreshToken));
-    if (session && !session.revoked_at) await revokeSession(session.id);
-  } catch (err: any) {
-    logger.error('Logout failed safely', { error: err?.message });
-  }
+  if (!refreshToken || typeof refreshToken !== 'string') return;
+  const session = await findSessionByRefreshHash(hashRefreshToken(refreshToken));
+  if (session && !session.revoked_at) await revokeSession(session.id);
 };
 
 export const getAuthenticatedUser = async (userId: string): Promise<SafeUser> => {

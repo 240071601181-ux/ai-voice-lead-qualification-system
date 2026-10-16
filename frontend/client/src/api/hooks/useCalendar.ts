@@ -5,16 +5,15 @@
  * Phase 14C-3 API services (never fetch/axios).
  *
  * Backend coverage (existing Express endpoints only):
+ *   GET  /api/v1/calendar/bookings?page=&limit= -> useCalendarBookingsQuery
  *   GET  /api/v1/calendar/availability?start=&end=[&timezone=] -> useAvailabilityQuery
  *   POST /api/v1/calendar/bookings                              -> useCreateBookingMutation
  *   GET  /api/v1/calendar/bookings/:id                         -> useBookingQuery
  *   POST /api/v1/calendar/sync                                 -> useRunCalendarSyncMutation
  *   GET  /api/v1/calendar/sync-status                          -> useCalendarSyncStatusQuery
  *
- * There is NO list endpoint, so there is deliberately no list query here.
- * The /calendar bookings table keeps using mock data until a backend list
- * endpoint exists. Availability logic, tier eligibility, idempotency, and
- * slot validation all stay backend-side; these hooks only transport data.
+ * Availability logic, tier eligibility, idempotency, and slot validation
+ * all stay backend-side; these hooks only transport data.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

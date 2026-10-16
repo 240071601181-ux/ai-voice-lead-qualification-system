@@ -1,11 +1,9 @@
 import { useLocation, useParams } from "wouter";
-import { CalendarDays, ChevronLeft, Clock3, Link2, MoreHorizontal, Video } from "lucide-react";
+import { CalendarDays, ChevronLeft, Clock3, Link2, Video } from "lucide-react";
 import { Button, Card } from "@/components/app/ui";
 import { NotFoundState } from "@/components/app/NotFoundState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/layouts/AppLayout";
-import { findBooking, findLead } from "@/mock/details";
-import type { MockBooking } from "@/mock/details";
 import { useBookingQuery } from "@/api/hooks/useCalendar";
 import { formatMinuteLocal } from "@/api/calendarDateTime";
 import { ApiError, getUserMessage } from "@/api/errors";
@@ -14,56 +12,12 @@ function formatDateTime(iso: string | null): string {
   return formatMinuteLocal(iso);
 }
 
-/** Demo-only meeting details from mock booking fixtures. */
-function MockMeetingView({ booking }: { booking: MockBooking }) {
-  const [, navigate] = useLocation();
-  const { notify } = useToast();
-  const lead = findLead(booking.leadId);
-
-  return (
-    <>
-      <button className="back-link" onClick={() => navigate("/calendar")}><ChevronLeft size={15} />Back to calendar</button>
-      <div className="integration-hero">
-        <div className="integration-logo blue"><Video size={25} /></div>
-        <div>
-          <span className="section-kicker">MEETINGS / DETAILS</span>
-          <h2>{booking.title}</h2>
-          <p>{booking.when} · {booking.duration} · {booking.status}</p>
-        </div>
-        <span className="connected-chip">{booking.status}</span>
-        <Button variant="ghost" onClick={() => notify("Meeting options opened")}>Manage</Button>
-      </div>
-      <div className="detail-grid">
-        <Card className="tab-panel">
-          <div className="card-header">
-            <div><span className="section-kicker">SCHEDULE</span><h2>Meeting record</h2></div>
-            <button className="more-btn"><MoreHorizontal size={17} /></button>
-          </div>
-          <div className="detail-fields">
-            <div><span>When</span><b>{booking.when}</b></div>
-            <div><span>Duration</span><b>{booking.duration}</b></div>
-            <div><span>Attendees</span><b>{booking.attendees}</b></div>
-            <div><span>Lead</span><b>{lead ? `${lead.name} · ${lead.id}` : booking.leadId}</b></div>
-          </div>
-        </Card>
-        <Card className="tab-panel">
-          <div className="card-header">
-            <div><span className="section-kicker">JOIN</span><h2>Conference link</h2></div>
-          </div>
-          <div className="call-row">
-            <span className="call-status done"><CalendarDays size={14} /></span>
-            <div><b>Google Meet</b><small>{booking.meetUrl}</small></div>
-            <button className="play-btn" onClick={() => notify("Meet link copied")}><Link2 size={14} /></button>
-          </div>
-          <div className="call-row">
-            <span className="call-status done"><Clock3 size={14} /></span>
-            <div><b>Reminder</b><small>15 minutes before start</small></div>
-          </div>
-        </Card>
-      </div>
-    </>
-  );
-}
+/**
+ * Phase 4 — demo booking fixtures (MTG-xxxx) removed. Every id resolves
+ * through GET /api/v1/calendar/bookings/:id: unknown ids render the honest
+ * not-found state, and only backend-confirmed records are ever displayed.
+ * No attendee, meeting link, or confirmed booking is fabricated.
+ */
 
 /**
  * Phase 14C-8 — live booking view for genuine backend ids:
@@ -187,15 +141,8 @@ function LiveMeetingView({ id }: { id: string }) {
   );
 }
 
-/**
- * Phase 14C-8 — demo booking ids (MTG-xxxx) keep the untouched mock view.
- * Any other id is treated as a genuine backend booking id and resolves
- * through GET /api/v1/calendar/bookings/:id (404 -> NotFound, as before).
- */
 export default function MeetingDetailsPage() {
   const params = useParams();
   const id = params.id ?? "";
-  const booking = findBooking(id);
-  if (booking) return <MockMeetingView booking={booking} />;
   return <LiveMeetingView id={id} />;
 }

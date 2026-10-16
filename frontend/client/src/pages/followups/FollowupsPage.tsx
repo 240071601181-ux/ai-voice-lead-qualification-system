@@ -13,6 +13,7 @@ import {
   useRetryFollowupMutation,
   useScheduleFollowupMutation,
 } from "@/api/hooks/useFollowups";
+import { useDashboardSummaryQuery } from "@/api/hooks/useDashboard";
 import { leadKeys } from "@/api/hooks/useLeads";
 import { getLead } from "@/api/services/leads";
 import { getUserMessage } from "@/api/errors";
@@ -66,8 +67,9 @@ function templateSuffix(payload: Record<string, unknown>): string {
 /**
  * Follow-up action queue backed by the real backend (GET /api/v1/followups
  * list + schedule/execute/cancel/retry endpoints). Rows are persisted
- * follow-up records only — never demo names. Aggregate cards render an
- * honest unavailable state (no aggregate endpoint exists).
+ * follow-up records only — never demo names. Aggregate cards are LIVE via
+ * GET /api/v1/dashboard/summary (bounded SQL counts, same source as the
+ * dashboard work queue); a failed aggregate renders "—", never a zero.
  */
 export default function FollowupsPage() {
   const { notify } = useToast();
@@ -115,6 +117,12 @@ export default function FollowupsPage() {
   };
 
   const scheduleMutation = useScheduleFollowupMutation();
+  const summary = useDashboardSummaryQuery();
+  const statValue = (value: number | undefined) =>
+    summary.isPending ? "…" : summary.isError || value === undefined ? "—" : String(value);
+  const totals = summary.data?.followups;
+  const completedShare =
+    totals && totals.total > 0 ? `${Math.round((totals.completed / totals.total) * 1000) / 10}% of ${totals.total}` : "no follow-ups yet";
   const executeMutation = useExecuteFollowupMutation();
   const cancelMutation = useCancelFollowupMutation();
   const retryMutation = useRetryFollowupMutation();
@@ -283,10 +291,10 @@ export default function FollowupsPage() {
         </div>
       </div>
       <div className="ops-stat-grid">
-        <Card><span className="section-kicker">ACTIVE NOW</span><strong>—</strong><small>No aggregate endpoint</small></Card>
-        <Card><span className="section-kicker">COMPLETION RATE</span><strong>—</strong><small>No aggregate endpoint</small></Card>
-        <Card><span className="section-kicker">AVG. RESPONSE</span><strong>—</strong><small>No aggregate endpoint</small></Card>
-        <Card><span className="section-kicker">NEEDS ATTENTION</span><strong className="amber-text">—</strong><small>No aggregate endpoint</small></Card>
+        <Card><span className="section-kicker">PENDING</span><strong>{statValue(totals && totals.pending + totals.processing)}</strong><small>scheduled or processing</small></Card>
+        <Card><span className="section-kicker">COMPLETED</span><strong>{statValue(totals?.completed)}</strong><small>{summary.isPending || summary.isError ? "persisted completions" : completedShare}</small></Card>
+        <Card><span className="section-kicker">FAILED</span><strong className="amber-text">{statValue(totals?.failed)}</strong><small>eligible for retry</small></Card>
+        <Card><span className="section-kicker">TOTAL</span><strong>{statValue(totals?.total)}</strong><small>persisted follow-up records</small></Card>
       </div>
       <Card className="table-card">
         <div className="card-header table-header">

@@ -13,7 +13,7 @@ export const createUser = async (input: {
   const res = await pool.query(
     `INSERT INTO users (email, password_hash, name, role)
      VALUES ($1, $2, $3, $4) RETURNING *`,
-    [input.email, input.password_hash, input.name || null, input.role || 'OPERATOR']
+    [input.email, input.password_hash, input.name || null, input.role || 'USER']
   );
   return res.rows[0];
 };
@@ -21,6 +21,15 @@ export const createUser = async (input: {
 export const findUserByEmail = async (email: string): Promise<User | null> => {
   const res = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
   return res.rows[0] || null;
+};
+
+/** Deployment CLI only: explicitly promote an existing verified account. */
+export const promoteUserToAdmin = async (email: string): Promise<boolean> => {
+  const result = await pool.query(
+    "UPDATE users SET role = 'ADMIN', updated_at = NOW() WHERE LOWER(email) = LOWER($1) AND status = 'active' RETURNING id",
+    [email]
+  );
+  return result.rowCount === 1;
 };
 
 export const findUserById = async (id: string): Promise<User | null> => {

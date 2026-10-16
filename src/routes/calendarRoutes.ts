@@ -8,7 +8,7 @@ const router = Router();
 // Phase 20 — internal admin API: authenticated internal users only.
 // (Conversation-scoped meeting endpoints live on conversationRoutes and
 // keep their ownership model untouched.)
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 router.post('/bookings', createBooking);
 router.get('/bookings', listBookings);

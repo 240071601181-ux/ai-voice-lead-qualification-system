@@ -11,17 +11,18 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RequireAuth } from "@/app/guards";
+import { RequireAuth, RequireAdmin } from "@/app/guards";
 import { frontendEnv } from "@/api/env";
 
 let sessionUser: unknown = null;
+let sessionPending = false;
 let customerAlive = false;
 const redirected: string[] = [];
 
 vi.mock("@/api/hooks/useSession", () => ({
   useSessionQuery: () => ({
     data: sessionUser,
-    isPending: false,
+    isPending: sessionPending,
   }),
 }));
 
@@ -39,6 +40,7 @@ describe("RequireAuth admin/customer separation", () => {
     vi.unstubAllGlobals();
     frontendEnv.apiBaseUrl = "http://localhost:4000";
     sessionUser = null;
+    sessionPending = false;
     customerAlive = false;
     redirected.length = 0;
     vi.stubGlobal(
@@ -81,7 +83,7 @@ describe("RequireAuth admin/customer separation", () => {
   }
 
   it("renders admin routes for an internal session", async () => {
-    sessionUser = { id: "u-1", email: "admin@example.com" };
+    sessionUser = { id: "u-1", email: "admin@example.com", role: "ADMIN" };
     renderGuard();
     await waitFor(() => expect(screen.getByText("admin content")).toBeInTheDocument());
     expect(redirected).toEqual([]);
@@ -89,6 +91,7 @@ describe("RequireAuth admin/customer separation", () => {
 
   it("sends customer sessions to /chat instead of /login", async () => {
     sessionUser = null;
+    sessionPending = false;
     customerAlive = true;
     renderGuard();
     await waitFor(() => expect(redirected).toContain("/chat"));
@@ -103,5 +106,54 @@ describe("RequireAuth admin/customer separation", () => {
     await waitFor(() => expect(redirected).toContain("/login"));
     expect(redirected).not.toContain("/chat");
     expect(screen.queryByText("admin content")).not.toBeInTheDocument();
+  });
+
+  function renderAdminGuard() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <RequireAdmin>
+          <p>admin-only content</p>
+        </RequireAdmin>
+      </QueryClientProvider>
+    );
+  }
+
+  it("renders ADMIN-only routes for ADMIN sessions", async () => {
+    sessionUser = { id: "u-1", email: "admin@example.com", role: "ADMIN" };
+    renderAdminGuard();
+    await waitFor(() => expect(screen.getByText("admin-only content")).toBeInTheDocument());
+  });
+
+  it("shows the unauthorized page (never admin content) for USER sessions", async () => {
+    sessionUser = { id: "u-2", email: "user@example.com", role: "USER" };
+    renderAdminGuard();
+    await waitFor(() => expect(screen.getByText("Not authorized")).toBeInTheDocument());
+    expect(screen.queryByText("admin-only content")).not.toBeInTheDocument();
+    expect(redirected).toEqual([]);
+  });
+
+  it("sends logged-out visitors on ADMIN routes to /login", async () => {
+    sessionUser = null;
+    customerAlive = false;
+    renderAdminGuard();
+    await waitFor(() => expect(redirected).toContain("/login"));
+    expect(screen.queryByText("admin-only content")).not.toBeInTheDocument();
+  });
+
+  it("does not render protected content while the session is loading", () => {
+    sessionPending = true;
+    renderGuard();
+    expect(screen.getByText("Checking your session…")).toBeInTheDocument();
+    expect(screen.queryByText("admin content")).not.toBeInTheDocument();
+    expect(redirected).toEqual([]);
+  });
+
+  it("fails closed when a session has no canonical backend role", async () => {
+    sessionUser = { id: "u-3", email: "stale@example.com" };
+    renderGuard();
+    await waitFor(() => expect(screen.getByText(/Unable to verify your account role/)).toBeInTheDocument());
+    expect(screen.queryByText("admin content")).not.toBeInTheDocument();
+    expect(redirected).toEqual([]);
   });
 });

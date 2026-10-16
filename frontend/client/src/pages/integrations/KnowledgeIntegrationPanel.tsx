@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { pageMeta } from "@/mock/pipeline";
 import { getUserMessage } from "@/api/errors";
+import { useSessionQuery } from "@/api/hooks/useSession";
+import { canAccessPath } from "@/app/accessPolicy";
 import {
   useKnowledgeDiagnosticsQuery,
   useKnowledgeDocumentQuery,
@@ -54,6 +56,8 @@ function excerpt(text: string, max = 180): string {
  */
 export function KnowledgeIntegrationPanel({ onToast }: { onToast: (message: string) => void }) {
   const [, navigate] = useLocation();
+  const session = useSessionQuery();
+  const canIngest = canAccessPath(session.data?.role, "/knowledge/ingest");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
@@ -93,9 +97,9 @@ export function KnowledgeIntegrationPanel({ onToast }: { onToast: (message: stri
           <Button icon={RefreshCw} variant="secondary" onClick={() => setSyncOpen(true)}>
             Sync now
           </Button>
-          <Button icon={Plus} variant="primary" onClick={() => navigate("/knowledge/ingest")}>
+          {canIngest ? <Button icon={Plus} variant="primary" onClick={() => navigate("/knowledge/ingest")}>
             Ingest document
-          </Button>
+          </Button> : null}
         </div>
       </div>
 
@@ -153,9 +157,9 @@ export function KnowledgeIntegrationPanel({ onToast }: { onToast: (message: stri
             <div style={{ padding: "12px 0" }}>
               <p className="lede">No documents ingested yet.</p>
               <div style={{ marginTop: 10 }}>
-                <Button variant="primary" icon={Plus} onClick={() => navigate("/knowledge/ingest")}>
+                {canIngest ? <Button variant="primary" icon={Plus} onClick={() => navigate("/knowledge/ingest")}>
                   Ingest your first document
-                </Button>
+                </Button> : null}
               </div>
             </div>
           ) : (
@@ -236,6 +240,7 @@ export function KnowledgeIntegrationPanel({ onToast }: { onToast: (message: stri
       <SyncStateDialog
         open={syncOpen}
         onOpenChange={setSyncOpen}
+        canIngest={canIngest}
         onIngest={() => {
           setSyncOpen(false);
           navigate("/knowledge/ingest");
@@ -244,6 +249,7 @@ export function KnowledgeIntegrationPanel({ onToast }: { onToast: (message: stri
       <ConnectionDialog
         open={connOpen}
         onOpenChange={setConnOpen}
+        canIngest={canIngest}
         onIngest={() => {
           setConnOpen(false);
           navigate("/knowledge/ingest");
@@ -265,10 +271,12 @@ export function KnowledgeIntegrationPanel({ onToast }: { onToast: (message: stri
 function SyncStateDialog({
   open,
   onOpenChange,
+  canIngest,
   onIngest,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  canIngest: boolean;
   onIngest: () => void;
 }) {
   return (
@@ -286,7 +294,7 @@ function SyncStateDialog({
         </p>
         <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button variant="primary" icon={Plus} onClick={onIngest}>Ingest document</Button>
+          {canIngest ? <Button variant="primary" icon={Plus} onClick={onIngest}>Ingest document</Button> : null}
         </div>
       </DialogContent>
     </Dialog>
@@ -297,11 +305,13 @@ function SyncStateDialog({
 function ConnectionDialog({
   open,
   onOpenChange,
+  canIngest,
   onIngest,
   onSearch,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  canIngest: boolean;
   onIngest: () => void;
   onSearch: () => void;
 }) {
@@ -337,7 +347,7 @@ function ConnectionDialog({
         <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
           <Button variant="secondary" icon={Search} onClick={onSearch}>Search knowledge</Button>
-          <Button variant="primary" icon={Plus} onClick={onIngest}>Ingest document</Button>
+          {canIngest ? <Button variant="primary" icon={Plus} onClick={onIngest}>Ingest document</Button> : null}
         </div>
       </DialogContent>
     </Dialog>

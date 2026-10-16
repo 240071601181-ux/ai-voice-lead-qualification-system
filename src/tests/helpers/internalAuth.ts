@@ -34,7 +34,7 @@ export const operatorUser = {
   id: 'operator-user-1',
   email: 'operator@example.com',
   name: 'Test Operator',
-  role: 'OPERATOR',
+  role: 'USER',
 };
 
 /** Install the suite secret; returns a restore function for afterAll. */

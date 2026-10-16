@@ -15,6 +15,7 @@ import { useConversationsQuery } from "@/api/hooks/useConversations";
 import { useQualificationsListQuery } from "@/api/hooks/useQualifications";
 import { getUserMessage } from "@/api/errors";
 import { filterSearchPages } from "@/components/app/searchIndex";
+import { isInternalRole } from "@/app/accessPolicy";
 import { filterConversationRecords, filterQualificationRecords } from "@/components/app/searchFilter";
 
 const LEAD_SEARCH_LIMIT = 8;
@@ -44,7 +45,7 @@ function useDebouncedValue(value: string, delayMs: number): string {
  * - Selecting a lead navigates to the real /leads/:id page (deep-link
  *   safe: the dev server serves index.html for SPA routes).
  */
-export function GlobalSearch() {
+export function GlobalSearch({ role }: { role: unknown }) {
   const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -91,7 +92,7 @@ export function GlobalSearch() {
     [qualificationSearch.data, trimmed]
   );
 
-  const pages = useMemo(() => filterSearchPages(query), [query]);
+  const pages = useMemo(() => filterSearchPages(query, role), [query, role]);
 
   const go = (path: string) => {
     setOpen(false);
@@ -101,11 +102,11 @@ export function GlobalSearch() {
 
   return (
     <>
-      <button className="global-search" onClick={() => setOpen(true)}>
+      {isInternalRole(role) ? <button className="global-search" onClick={() => setOpen(true)}>
         <Search size={16} />
         <span>Search anything</span>
         <kbd>⌘ K</kbd>
-      </button>
+      </button> : null}
       <Dialog
         open={open}
         onOpenChange={(v) => {

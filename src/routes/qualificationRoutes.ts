@@ -11,7 +11,7 @@ import {
 const router = Router();
 
 // Phase 20 — internal admin API: authenticated internal users only.
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 // Phase 14 — POST / (call-anchored re-run for historical records) stays:
 // the qualifications UI re-run targets call-associated rows. The

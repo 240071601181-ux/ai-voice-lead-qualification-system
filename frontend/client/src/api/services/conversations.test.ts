@@ -1,6 +1,9 @@
 /**
  * Phase 9 — Conversation API service tests.
  * Phase 11 — authenticated via the backend session (no pasted tokens).
+ * Phase 5 — login fixtures carry the canonical backend role: session.ts
+ *   fail-closes (malformed) when the role is missing or invalid, so the
+ *   only valid token source is a contract-conformant login response.
  *
  * Mocks the network boundary (global fetch) only: asserts request paths,
  * methods, bodies, the session Authorization header (with refresh-once
@@ -41,7 +44,7 @@ function mockFetchOnce(status: number, body: unknown) {
 const loginPayload = (accessToken = "access-1") => ({
   success: true,
   data: {
-    user: { id: "user-1", email: "a@example.com" },
+    user: { id: "user-1", email: "a@example.com", name: "Test User", role: "USER" },
     accessToken,
     accessExpiresAt: new Date(Date.now() + 900_000).toISOString(),
   },
@@ -301,5 +304,45 @@ describe("conversations API service", () => {
     const error = await listConversations({}).catch((e) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).kind).toBe("network");
+  });
+
+  it("fail-closes when the login response carries no canonical role", async () => {
+    const { getSessionUser, login } = await import("@/api/session");
+    const spy = mockFetchOnce(
+      200,
+      {
+        success: true,
+        data: {
+          user: { id: "user-1", email: "a@example.com" },
+          accessToken: "access-rogue",
+          accessExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      }
+    );
+    const error = await login({ email: "a@example.com", password: "password-123" }).catch((e) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).kind).toBe("malformed");
+    // No session is established from the invalid payload.
+    expect(getSessionUser()).toBeNull();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("fail-closes when the login response carries a non-canonical role", async () => {
+    const { getSessionUser, login } = await import("@/api/session");
+    mockFetchOnce(
+      200,
+      {
+        success: true,
+        data: {
+          user: { id: "user-1", email: "a@example.com", name: "Rogue", role: "SUPERADMIN" },
+          accessToken: "access-rogue",
+          accessExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      }
+    );
+    const error = await login({ email: "a@example.com", password: "password-123" }).catch((e) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).kind).toBe("malformed");
+    expect(getSessionUser()).toBeNull();
   });
 });

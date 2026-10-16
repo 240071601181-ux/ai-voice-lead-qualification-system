@@ -1,12 +1,12 @@
 /**
- * Phase 20 — internal roles (ADMIN | OPERATOR).
+ * Phase 20 — internal roles (ADMIN | USER).
  *
- * - Public registration mints OPERATOR, never ADMIN — unless the deployer
- *   explicitly named BOOTSTRAP_ADMIN_EMAIL.
+ * - Public registration always mints USER, even if the caller knows the
+ *   deployment's intended administrator email.
  * - requireRole: 401 without a valid internal user, 403 for insufficient
  *   role, pass for sufficient role; unknown stored roles normalize to
- *   OPERATOR (never a silent ADMIN).
- * - ADMIN-only writes (settings PATCH) reject OPERATORs; reads stay open
+ *   USER (never a silent ADMIN).
+ * - ADMIN-only writes (settings PATCH) reject USERs; reads stay open
  *   to every internal role; legacy chat tokens fail closed on admin APIs.
  */
 import request from 'supertest';
@@ -53,12 +53,24 @@ const adminRow = {
 describe('normalizeRole', () => {
   it('resolves ADMIN only for the exact value', () => {
     expect(normalizeRole('ADMIN')).toBe('ADMIN');
-    expect(normalizeRole('OPERATOR')).toBe('OPERATOR');
-    expect(normalizeRole(undefined)).toBe('OPERATOR');
-    expect(normalizeRole(null)).toBe('OPERATOR');
-    expect(normalizeRole('admin')).toBe('OPERATOR');
-    expect(normalizeRole('SUPERADMIN')).toBe('OPERATOR');
-    expect(normalizeRole('')).toBe('OPERATOR');
+    expect(normalizeRole('USER')).toBe('USER');
+    expect(normalizeRole(undefined)).toBe('USER');
+    expect(normalizeRole(null)).toBe('USER');
+    expect(normalizeRole('admin')).toBe('USER');
+    expect(normalizeRole('SUPERADMIN')).toBe('USER');
+    expect(normalizeRole('')).toBe('USER');
+  });
+});
+
+describe('controlled admin provisioning', () => {
+  it('promotes only an explicitly selected active account through the deployment repository operation', async () => {
+    (pool.query as jest.Mock).mockResolvedValue({ rowCount: 1, rows: [{ id: 'admin-user-1' }] });
+    const promoted = await userRepo().promoteUserToAdmin('owner@example.com');
+    expect(promoted).toBe(true);
+    const [sql, values] = (pool.query as jest.Mock).mock.calls[0];
+    expect(sql).toContain("SET role = 'ADMIN'");
+    expect(sql).toContain("status = 'active'");
+    expect(values).toEqual(['owner@example.com']);
   });
 });
 
@@ -120,28 +132,28 @@ describe('registration role assignment', () => {
     });
   };
 
-  it('registers OPERATOR by default (never a silent ADMIN)', async () => {
+  it('registers USER by default (never a silent ADMIN)', async () => {
     mockRegisterReads();
     const res = await request(app)
       .post('/api/v1/auth/register')
-      .send({ email: 'new@example.com', password: 'password-123456' });
+      .send({ email: 'new@example.com', password: 'password-123456', name: 'New User', role: 'ADMIN' });
     expect(res.status).toBe(201);
-    expect(res.body.data.user.role).toBe('OPERATOR');
+    expect(res.body.data.user.role).toBe('USER');
     const insert = (pool.query as jest.Mock).mock.calls.find(([s]: string[]) =>
       String(s).includes('INSERT INTO users')
     );
     expect(String(insert[0])).toContain('role');
-    expect(insert[1][3]).toBe('OPERATOR');
+    expect(insert[1][3]).toBe('USER');
   });
 
-  it('assigns ADMIN only via the explicit BOOTSTRAP_ADMIN_EMAIL mechanism', async () => {
+  it('does not grant ADMIN when public signup matches the former bootstrap email', async () => {
     process.env.BOOTSTRAP_ADMIN_EMAIL = 'boss@example.com';
     mockRegisterReads();
     const res = await request(app)
       .post('/api/v1/auth/register')
-      .send({ email: 'boss@example.com', password: 'password-123456' });
+      .send({ email: 'boss@example.com', password: 'password-123456', name: 'Boss User', role: 'ADMIN' });
     expect(res.status).toBe(201);
-    expect(res.body.data.user.role).toBe('ADMIN');
+    expect(res.body.data.user.role).toBe('USER');
   });
 });
 
@@ -184,8 +196,8 @@ describe('requireRole enforcement on admin APIs', () => {
     expect(res.status).toBe(200);
   });
 
-  it('rejects OPERATOR writes to ADMIN-only settings with 403', async () => {
-    userRepo().findUserById.mockResolvedValue({ ...adminRow, id: 'operator-user-1', role: 'OPERATOR' });
+  it('rejects USER writes to ADMIN-only settings with 403', async () => {
+    userRepo().findUserById.mockResolvedValue({ ...adminRow, id: 'operator-user-1', role: 'USER' });
     const res = await request(app)
       .patch('/api/v1/settings')
       .set('Authorization', bearerFor(operatorUser))
@@ -194,8 +206,8 @@ describe('requireRole enforcement on admin APIs', () => {
     expect(res.body.success).toBe(false);
   });
 
-  it('lets OPERATOR read admin APIs', async () => {
-    userRepo().findUserById.mockResolvedValue({ ...adminRow, id: 'operator-user-1', role: 'OPERATOR' });
+  it('lets USER read admin APIs', async () => {
+    userRepo().findUserById.mockResolvedValue({ ...adminRow, id: 'operator-user-1', role: 'USER' });
     const res = await request(app)
       .get('/api/v1/settings')
       .set('Authorization', bearerFor(operatorUser));
@@ -226,5 +238,37 @@ describe('requireRole enforcement on admin APIs', () => {
       .get('/api/v1/settings')
       .set('Authorization', bearerFor());
     expect(res.status).toBe(401);
+  });
+
+  it('returns the server-verified role on /auth/me', async () => {
+    userRepo().findUserById.mockResolvedValue({ ...adminRow, id: 'operator-user-1', role: 'USER' });
+    const res = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', bearerFor(operatorUser));
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('USER');
+    expect(res.body.data).not.toHaveProperty('password_hash');
+    expect(res.body.data).not.toHaveProperty('refreshToken');
+  });
+
+  it('never lets a USER promote itself through profile updates', async () => {
+    const stored = { ...adminRow, id: 'operator-user-1', name: 'Staff', role: 'USER' };
+    userRepo().findUserById.mockResolvedValue(stored);
+    (pool.query as jest.Mock).mockImplementation(async (sql: string) => {
+      if (sql.includes('UPDATE users SET name')) {
+        return { rows: [{ ...stored, name: 'Staff Renamed' }] };
+      }
+      return { rows: [] };
+    });
+    const res = await request(app)
+      .patch('/api/v1/auth/me')
+      .set('Authorization', bearerFor(operatorUser))
+      .send({ name: 'Staff Renamed', role: 'ADMIN' });
+    expect(res.status).toBe(200);
+    // The rename applied; the smuggled role was ignored — still USER.
+    expect(res.body.data.name).toBe('Staff Renamed');
+    expect(res.body.data.role).toBe('USER');
+    const writes = (pool.query as jest.Mock).mock.calls.map(([s]: string[]) => String(s));
+    expect(writes.some((s) => s.includes('UPDATE users SET role'))).toBe(false);
   });
 });

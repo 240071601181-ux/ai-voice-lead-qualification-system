@@ -1,5 +1,7 @@
 /**
  * Phase 14C-3 — Follow-up API service.
+ * Phase 20 — internal admin API: every call carries the session (refresh
+ * once-and-retried via `authedRequest`).
  *
  * Backend routes (existing Express backend, DO NOT MODIFY):
  *   POST /api/v1/followups/schedule
@@ -14,6 +16,7 @@
  * future scheduler/worker. Do NOT expose it as a normal user-facing action.
  */
 
+import { authedRequest } from "../session";
 import { httpClient } from "../httpClient";
 import type {
   ExecuteDueFollowupsInput,
@@ -24,36 +27,53 @@ import type {
   ScheduleFollowupInput,
 } from "../types";
 
+function authed<T>(fn: (headers: Record<string, string>) => Promise<T>): Promise<T> {
+  return authedRequest(fn);
+}
+
 export function scheduleFollowup(data: ScheduleFollowupInput): Promise<FollowUp> {
-  return httpClient.post<FollowUp>("/api/v1/followups/schedule", data);
+  return authed((headers) =>
+    httpClient.post<FollowUp>("/api/v1/followups/schedule", data, { headers })
+  );
 }
 
 export function listFollowups(params: ListFollowupsInput = {}): Promise<FollowupListResult> {
-  return httpClient.get<FollowupListResult>("/api/v1/followups", {
-    query: {
-      status: params.status || undefined,
-      leadId: params.leadId || undefined,
-      action: params.action || undefined,
-      page: params.page,
-      limit: params.limit,
-    },
-  });
+  return authed((headers) =>
+    httpClient.get<FollowupListResult>("/api/v1/followups", {
+      headers,
+      query: {
+        status: params.status || undefined,
+        leadId: params.leadId || undefined,
+        action: params.action || undefined,
+        page: params.page,
+        limit: params.limit,
+      },
+    })
+  );
 }
 
 export function getFollowup(id: string): Promise<FollowUp> {
-  return httpClient.get<FollowUp>(`/api/v1/followups/${encodeURIComponent(id)}`);
+  return authed((headers) =>
+    httpClient.get<FollowUp>(`/api/v1/followups/${encodeURIComponent(id)}`, { headers })
+  );
 }
 
 export function executeFollowup(id: string): Promise<FollowUp> {
-  return httpClient.post<FollowUp>(`/api/v1/followups/${encodeURIComponent(id)}/execute`);
+  return authed((headers) =>
+    httpClient.post<FollowUp>(`/api/v1/followups/${encodeURIComponent(id)}/execute`, {}, { headers })
+  );
 }
 
 export function cancelFollowup(id: string): Promise<FollowUp> {
-  return httpClient.post<FollowUp>(`/api/v1/followups/${encodeURIComponent(id)}/cancel`);
+  return authed((headers) =>
+    httpClient.post<FollowUp>(`/api/v1/followups/${encodeURIComponent(id)}/cancel`, {}, { headers })
+  );
 }
 
 export function retryFollowup(id: string): Promise<FollowUp> {
-  return httpClient.post<FollowUp>(`/api/v1/followups/${encodeURIComponent(id)}/retry`);
+  return authed((headers) =>
+    httpClient.post<FollowUp>(`/api/v1/followups/${encodeURIComponent(id)}/retry`, {}, { headers })
+  );
 }
 
 /**
@@ -63,5 +83,7 @@ export function retryFollowup(id: string): Promise<FollowUp> {
 export function executeDueFollowups(
   data: ExecuteDueFollowupsInput = {}
 ): Promise<ExecuteDueFollowupsResult> {
-  return httpClient.post<ExecuteDueFollowupsResult>("/api/v1/followups/execute-due", data);
+  return authed((headers) =>
+    httpClient.post<ExecuteDueFollowupsResult>("/api/v1/followups/execute-due", data, { headers })
+  );
 }

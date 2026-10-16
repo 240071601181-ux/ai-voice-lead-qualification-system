@@ -8,7 +8,7 @@ const router = Router();
 
 // Phase 20 — internal admin API. Agent behavior controls are global
 // configuration: reads/health for every internal role, writes ADMIN only.
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 router.get('/config', getConfig);
 router.patch('/config', requireRole('ADMIN'), patchConfig);

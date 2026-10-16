@@ -122,6 +122,9 @@ export const logoutHandler = async (
     clearRefreshCookie(res);
     return res.json({ success: true, data: { loggedOut: true } });
   } catch (err) {
+    // Clear the browser credential even when persistence is unavailable, but
+    // let the error response make clear that server-side revocation failed.
+    clearRefreshCookie(res);
     return next(err);
   }
 };

@@ -217,16 +217,17 @@ describe('Phase 2: Text Conversation Persistence', () => {
     const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
     const sql014 = readFileSync(path.join(migrationsDir, '014_create_text_conversation_tables.sql'), 'utf-8');
 
-    it('should keep the sequence additive (014 through 018)', () => {
+    it('should keep the sequence additive (014 through 019)', () => {
       const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
-      expect(files).toHaveLength(18);
-      expect(files[files.length - 5]).toBe('014_create_text_conversation_tables.sql');
-      expect(files[files.length - 4]).toBe('015_conversation_qualification.sql');
-      expect(files[files.length - 3]).toBe('016_conversation_calendar_bookings.sql');
-      expect(files[files.length - 2]).toBe('017_user_auth_and_conversation_ownership.sql');
-      expect(files[files.length - 1]).toBe('018_admin_roles_and_customer_access.sql');
+      expect(files).toHaveLength(19);
+      expect(files[files.length - 6]).toBe('014_create_text_conversation_tables.sql');
+      expect(files[files.length - 5]).toBe('015_conversation_qualification.sql');
+      expect(files[files.length - 4]).toBe('016_conversation_calendar_bookings.sql');
+      expect(files[files.length - 3]).toBe('017_user_auth_and_conversation_ownership.sql');
+      expect(files[files.length - 2]).toBe('018_admin_roles_and_customer_access.sql');
+      expect(files[files.length - 1]).toBe('019_user_role_rename.sql');
       expect(files.map((f) => f.slice(0, 3))).toEqual(
-        Array.from({ length: 18 }, (_, i) => String(i + 1).padStart(3, '0'))
+        Array.from({ length: 19 }, (_, i) => String(i + 1).padStart(3, '0'))
       );
     });
 
@@ -305,6 +306,25 @@ describe('Phase 2: Text Conversation Persistence', () => {
       expect(sql017).not.toMatch(/ALTER TABLE calls/i);
       expect(sql017).not.toMatch(/ALTER TABLE conversation_state/i);
       expect(sql017).not.toMatch(/DROP COLUMN/i);
+    });
+  });
+
+  describe('migration 019 contents (Phase 21)', () => {
+    const migrationsDir = path.resolve(__dirname, '..', 'database', 'migrations');
+    const sql019 = readFileSync(path.join(migrationsDir, '019_user_role_rename.sql'), 'utf-8');
+
+    it('should rename the standard internal role additively', () => {
+      expect(sql019).toMatch(/UPDATE users SET role = 'USER' WHERE role = 'OPERATOR'/);
+      expect(sql019).toMatch(/IN \('ADMIN', 'USER'\)/);
+      expect(sql019).toMatch(/SET DEFAULT 'USER'/);
+    });
+
+    it('should not touch or drop legacy structures', () => {
+      expect(sql019).not.toMatch(/DROP TABLE/i);
+      expect(sql019).not.toMatch(/ALTER TABLE calls/i);
+      expect(sql019).not.toMatch(/ALTER TABLE conversation_state[^s]/i);
+      expect(sql019).not.toMatch(/DROP COLUMN/i);
+      expect(sql019).not.toMatch(/DELETE FROM/i);
     });
   });
 

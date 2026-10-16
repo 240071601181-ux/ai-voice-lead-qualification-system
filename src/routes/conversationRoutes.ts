@@ -64,14 +64,14 @@ router.get('/:id/state', requireOwnedConversation, getConversationStateHandler);
 router.post(
   '/:id/customer-access',
   requireInternalUser,
-  requireRole('ADMIN', 'OPERATOR'),
+  requireRole('ADMIN', 'USER'),
   requireOwnedConversation,
   postCustomerAccessHandler
 );
 router.post(
   '/:id/customer-access/revoke',
   requireInternalUser,
-  requireRole('ADMIN', 'OPERATOR'),
+  requireRole('ADMIN', 'USER'),
   requireOwnedConversation,
   postRevokeCustomerAccessHandler
 );

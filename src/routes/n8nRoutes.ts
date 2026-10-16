@@ -8,7 +8,7 @@ const router = Router();
 // Phase 20 — internal admin API: authenticated internal users only.
 // (n8n itself is untouched: outbound delivery configuration and behavior
 // are unchanged; only dashboard visibility is now authenticated.)
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 router.get('/diagnostics', getDiagnostics);
 router.get('/workflows', listWorkflows);

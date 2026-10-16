@@ -2,6 +2,7 @@ import {
   Activity,
   Bell,
   Bot,
+  CircleHelp,
   CalendarDays,
   Clock3,
   Database,
@@ -44,22 +45,26 @@ export type Lead = {
   color: string;
 };
 
-export const leads: Lead[] = [
-  { id: "LD-1048", initials: "AR", name: "Arjun Rao", company: "Rao Exports", phone: "+91 98765 22109", route: "Chennai → Mumbai", vehicle: "32 ft Multi Axle", cargo: "Auto components", budget: "₹78,000", tier: "HOT", score: 92, status: "Qualified", last: "8 min ago", created: "Today, 09:32", color: "#00f0ff" },
-  { id: "LD-1047", initials: "MS", name: "Meera Shah", company: "Shah Textiles", phone: "+91 98210 80451", route: "Surat → Delhi", vehicle: "22 ft Container", cargo: "Textiles", budget: "₹54,500", tier: "HOT", score: 87, status: "Call completed", last: "24 min ago", created: "Today, 08:48", color: "#8b5cf6" },
-  { id: "LD-1046", initials: "VK", name: "Vikram Kulkarni", company: "VK Industrial", phone: "+91 99870 14402", route: "Pune → Hyderabad", vehicle: "24 ft Open", cargo: "Machinery", budget: "₹41,200", tier: "WARM", score: 71, status: "Follow-up due", last: "1 hr ago", created: "Today, 08:06", color: "#f59e0b" },
-  { id: "LD-1045", initials: "NK", name: "Nisha Khatri", company: "Khatri Foods", phone: "+91 98102 66420", route: "Kolkata → Lucknow", vehicle: "20 ft Reefer", cargo: "Frozen foods", budget: "₹63,000", tier: "WARM", score: 66, status: "In review", last: "2 hrs ago", created: "Today, 07:20", color: "#ef8354" },
-  { id: "LD-1044", initials: "RS", name: "Rohan Sethi", company: "Sethi Retail", phone: "+91 99100 73218", route: "Jaipur → Bengaluru", vehicle: "32 ft Trailer", cargo: "FMCG", budget: "₹92,000", tier: "COLD", score: 38, status: "New", last: "4 hrs ago", created: "Yesterday, 18:42", color: "#64748b" },
-  { id: "LD-1043", initials: "PS", name: "Priya Srinivas", company: "PS Pharma", phone: "+91 98860 49210", route: "Bengaluru → Kochi", vehicle: "14 ft Closed", cargo: "Pharma", budget: "₹22,700", tier: "HOT", score: 84, status: "Qualified", last: "Yesterday", created: "Yesterday, 16:18", color: "#22c55e" },
-];
+/**
+ * Phase 4 — the hardcoded demo lead rows lived here and were rendered as
+ * production data (dashboard activity, operations tables, detail lookups).
+ * They are deleted: every production view now reads the backend. The `Lead`
+ * display-adapter type stays because `leadDisplay` + `TierBadge` reuse it
+ * for real backend rows (never for fixture rows — none remain).
+ */
 
-export const navGroups: { label: string; items: { label: string; icon: IconType; path: string; badge?: string }[] }[] = [
+/**
+ * Phase 4 — navigation carries no counts. The old static badges ("24", "5",
+ * "3", "Optional") pretended to be backend totals; counts now live next to
+ * the data they describe (dashboard summary, list pagination).
+ */
+export const navGroups: { label: string; items: { label: string; icon: IconType; path: string }[] }[] = [
   { label: "OPERATIONS", items: [
     { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-    { label: "Leads", icon: Users, path: "/leads", badge: "24" },
+    { label: "Leads", icon: Users, path: "/leads" },
     { label: "Conversations", icon: MessageSquareText, path: "/conversations" },
     { label: "Qualifications", icon: Target, path: "/qualifications" },
-    { label: "Follow-ups", icon: Clock3, path: "/followups", badge: "5" },
+    { label: "Follow-ups", icon: Clock3, path: "/followups" },
   ] },
   { label: "AI SYSTEMS", items: [
     { label: "AI Agent", icon: Bot, path: "/ai-agent" },
@@ -69,13 +74,14 @@ export const navGroups: { label: string; items: { label: string; icon: IconType;
     { label: "CRM", icon: Database, path: "/crm" },
     { label: "WhatsApp", icon: MessageCircle, path: "/whatsapp" },
     { label: "Calendar", icon: CalendarDays, path: "/calendar" },
-    { label: "Automation / n8n", icon: Network, path: "/automation", badge: "Optional" },
+    { label: "Automation / n8n", icon: Network, path: "/automation" },
   ] },
   { label: "SYSTEM", items: [
     { label: "Activity", icon: Activity, path: "/activity" },
-    { label: "Notifications", icon: Bell, path: "/notifications", badge: "3" },
+    { label: "Notifications", icon: Bell, path: "/notifications" },
     { label: "Settings", icon: Settings, path: "/settings" },
     { label: "Profile", icon: UserCircle2, path: "/profile" },
+    { label: "Help", icon: CircleHelp, path: "/help" },
   ] },
 ];
 
@@ -95,4 +101,5 @@ export const pageMeta: Record<string, { title: string; eyebrow: string; descript
   "/notifications": { title: "Notifications", eyebrow: "SYSTEM / SIGNALS", description: "Operational alerts that need your attention." },
   "/settings": { title: "Settings", eyebrow: "SYSTEM / CONFIGURATION", description: "Shape the way MadLead AI works for your team." },
   "/profile": { title: "Profile", eyebrow: "SYSTEM / YOUR ACCOUNT", description: "Manage your identity and workspace details." },
+  "/help": { title: "Help & support", eyebrow: "SYSTEM / SUPPORT", description: "Find guidance for the MadLead AI workspace." },
 };

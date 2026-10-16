@@ -6,7 +6,7 @@ import { getDiagnostics, listDeliveries } from '../controllers/whatsappControlle
 const router = Router();
 
 // Phase 20 — internal admin API: authenticated internal users only.
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 router.get('/diagnostics', getDiagnostics);
 router.get('/deliveries', listDeliveries);

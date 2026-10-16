@@ -1,14 +1,13 @@
 import { Redirect, Route, Switch } from "wouter";
 import { AppLayout, ToastProvider } from "@/layouts/AppLayout";
 import { AuthLayout } from "@/layouts/AuthLayout";
-import { RequireAuth } from "@/app/guards";
+import { RequireAuth, RequireAdmin } from "@/app/guards";
 import NotFound from "@/pages/NotFound";
 import LoginPage from "@/pages/auth/LoginPage";
 import SignupPage from "@/pages/auth/SignupPage";
 import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
 import VerifyEmailPage from "@/pages/auth/VerifyEmailPage";
-import AccountCreatedPage from "@/pages/auth/AccountCreatedPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import LeadsPage from "@/pages/leads/LeadsPage";
 import LeadDetailPage from "@/pages/leads/LeadDetailPage";
@@ -55,6 +54,23 @@ function appRoute(path: string, metaKey: string, page: React.ReactNode) {
   );
 }
 
+/**
+ * Phase 21 — ADMIN-only pages (settings, agent config, knowledge ingest).
+ * USER sessions render a truthful unauthorized page; the backend
+ * (requireRole) remains the real boundary.
+ */
+function adminRoute(path: string, metaKey: string, page: React.ReactNode) {
+  return (
+    <Route path={path}>
+      <RequireAdmin path={path}>
+        <ToastProvider>
+          <AppLayout path={metaKey}>{page}</AppLayout>
+        </ToastProvider>
+      </RequireAdmin>
+    </Route>
+  );
+}
+
 function authRoute(path: string, page: React.ReactNode) {
   return (
     <Route path={path}>
@@ -71,7 +87,6 @@ export function Router() {
       {authRoute("/forgot-password", <ForgotPasswordPage />)}
       {authRoute("/reset-password", <ResetPasswordPage />)}
       {authRoute("/verify-email", <VerifyEmailPage />)}
-      {authRoute("/account-created", <AccountCreatedPage />)}
 
       {/* Phase 20 — external customer chat. Public routes with their own
           minimal shell: never the admin AppLayout, never RequireAuth. */}
@@ -110,11 +125,11 @@ export function Router() {
       {/* Phase 14C-7: detail for genuine backend follow-up ids (GET /api/v1/followups/:id). */}
       {appRoute("/followups/:id", "/followups", <FollowupDetailPage />)}
 
-      {appRoute("/ai-agent", "/ai-agent", <AiAgentPage />)}
+      {adminRoute("/ai-agent", "/ai-agent", <AiAgentPage />)}
 
       {appRoute("/knowledge", "/knowledge", <KnowledgePage />)}
       {appRoute("/knowledge/search", "/knowledge", <KnowledgeSearchPage />)}
-      {appRoute("/knowledge/ingest", "/knowledge", <KnowledgeIngestPage />)}
+      {adminRoute("/knowledge/ingest", "/knowledge", <KnowledgeIngestPage />)}
 
       {appRoute("/crm", "/crm", <CrmPage />)}
       {appRoute("/whatsapp", "/whatsapp", <WhatsappPage />)}
@@ -125,7 +140,7 @@ export function Router() {
       {appRoute("/activity", "/activity", <ActivityPage />)}
       {appRoute("/notifications", "/notifications", <NotificationsPage />)}
       {appRoute("/profile", "/profile", <ProfilePage />)}
-      {appRoute("/settings", "/settings", <SettingsPage />)}
+      {adminRoute("/settings", "/settings", <SettingsPage />)}
       {appRoute("/help", "/help", <HelpPage />)}
 
       <Route path="/404" component={NotFound} />

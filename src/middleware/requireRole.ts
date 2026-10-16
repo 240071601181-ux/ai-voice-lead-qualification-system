@@ -11,12 +11,12 @@ import { findUserById } from '../repositories/userRepository';
  * every request — never from client claims:
  * - ADMIN: full internal access, including global-config writes and
  *   customer-access issuance.
- * - OPERATOR: daily internal work (leads, conversations, qualification
+ * - USER: daily internal work (leads, conversations, qualification
  *   reads, integrations). Cannot change global configuration.
  * - Customers are NEVER users: no CUSTOMER role exists. Customer sessions
  *   are rejected here (401) — they belong on /api/v1/customer/* only.
  *
- * Missing/unknown stored roles safely normalize to OPERATOR (least
+ * Missing/unknown stored roles safely normalize to USER (least
  * privilege; rows predating migration 018 keep working without ever
  * becoming silent admins).
  */

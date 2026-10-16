@@ -54,15 +54,21 @@ describe("MadLead AI frontend contract (post-voice)", () => {
   });
 
   it("keeps stale MadVoice/voice-led branding out of customer-facing files", () => {
+    // Phase 5 — AccountCreatedPage was removed in Phase 3 (the misleading
+    // account-created intermediary is gone; successful registration now
+    // establishes the authenticated session directly and navigates to
+    // /dashboard — see AuthScreen.test.tsx). The contract scans the live
+    // customer-facing files instead of the deleted page.
     const customerFacing = [
       "client/src/components/app/ui.tsx",
       "client/src/pages/auth/AuthScreen.tsx",
-      "client/src/pages/auth/AccountCreatedPage.tsx",
       "client/src/pages/auth/VerifyEmailPage.tsx",
       "client/src/pages/auth/ResetPasswordPage.tsx",
       "client/src/pages/system/ProfilePage.tsx",
       "client/src/pages/system/HelpPage.tsx",
-      "client/src/pages/integrations/IntegrationPage.tsx",
+    // Phase 6 — IntegrationPage (unrouted legacy demo with fabricated
+    // provider statuses) was deleted; the scan covers the live
+    // customer-facing files instead of the removed page.
       "client/src/mock/pipeline.ts",
       "client/src/components/app/searchIndex.ts",
       "client/src/app/routes.tsx",
@@ -73,5 +79,18 @@ describe("MadLead AI frontend contract (post-voice)", () => {
       expect(source, rel).not.toMatch(/madvoice/i);
       expect(source, rel).not.toMatch(/VOICE-LED LOGISTICS OPS/);
     }
+  });
+
+  it("requires the live authentication routes and no dead account-created page", () => {
+    const routes = read("client/src/app/routes.tsx");
+    for (const required of ["/login", "/signup", "/forgot-password", "/reset-password", "/verify-email"]) {
+      expect(routes, required).toContain(required);
+    }
+    // The Phase 3 removal must stay removed: no route, import, or
+    // navigation target may reference the deleted intermediary.
+    expect(routes).not.toMatch(/AccountCreatedPage/);
+    expect(routes).not.toMatch(/account-created/);
+    const authScreen = read("client/src/pages/auth/AuthScreen.tsx");
+    expect(authScreen).not.toMatch(/AccountCreatedPage/);
   });
 });

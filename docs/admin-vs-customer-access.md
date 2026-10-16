@@ -6,27 +6,54 @@ only and proves nothing.
 
 ## Internal users (the admin application)
 
-- **Identity:** rows in the `users` table (`ADMIN` | `OPERATOR`; there is no
+- **Identity:** rows in the `users` table (`ADMIN` | `USER`; there is no
   customer role there — customers are external leads, never users).
 - **Session:** short-lived HS256 access JWT (`Authorization: Bearer …`) plus
   an opaque refresh token in the `mad_rt` HttpOnly cookie.
 - **APIs:** everything under `/api/v1/*` **except** `/api/v1/auth/*`
   (login/register/refresh), `/api/v1/customer/*`, and `/health` requires an
   authenticated internal user (`requireAuth` + `requireRole`).
-  - Every internal role (`ADMIN`, `OPERATOR`) may use daily APIs: leads,
-    conversations (with existing per-user ownership), qualifications,
-    follow-ups, CRM, WhatsApp, calendar, knowledge search, dashboard, n8n.
-  - `ADMIN`-only: global-configuration writes (workspace settings PATCH,
-    agent config PATCH/pause/resume, knowledge ingest) and customer-access
-    issuance/revocation.
-- **Registration:** public signup always mints `OPERATOR`. The deployer
-  names exactly one bootstrap address via `BOOTSTRAP_ADMIN_EMAIL`; existing
-  rows default to `OPERATOR` — promote explicitly:
-  `UPDATE users SET role = 'ADMIN' WHERE email = '…';`
+  - Both roles can use leads, owned conversation workflows, qualifications,
+    follow-up scheduling/listing/per-item actions, CRM sync, WhatsApp reads,
+    calendar operations, knowledge search/reads, dashboard, and n8n reads.
+    Customer-access issuance/revocation is available to either role for an
+    owned conversation.
+  - `ADMIN`-only mutations: workspace settings PATCH, agent config
+    PATCH/pause/resume, knowledge ingest, and batch follow-up execution
+    (`POST /api/v1/followups/execute-due`).
+- **Registration:** public signup always mints `USER`. After verifying
+  account ownership, a deployment operator can promote an existing active
+  account with `npm run admin:promote -- <existing-account-email>`.
+- **Database upgrades:** `npm run migrate` records applied SQL in
+  `schema_migrations`. Existing databases matching the complete 018 schema
+  are baselined through 018 and then receive 019. Investigate any incomplete
+  or drifted schema before retrying; the runner stops instead of replaying it.
 - **UI:** all `/dashboard`, `/leads`, `/conversations`, `/qualifications`,
   `/followups`, `/crm`, `/whatsapp`, `/calendar`, `/ai-agent`, `/knowledge`,
   `/automation`, `/activity`, `/settings` routes sit behind `RequireAuth`.
   A customer session hitting them is redirected to `/chat`, never `/login`.
+
+## Phase 21 additions (ADMIN vs USER)
+
+- **Standard role is `USER`** (migration `019` renamed the Phase-20
+  `OPERATOR` value in place; permissions unchanged). `ADMIN` is full
+  control; `USER` is sales/operations.
+- **Login entry `[Admin | User]` is intent, not authorization.** The server
+  verifies the account role after credentials check: a `USER` account
+  selecting Admin is rejected truthfully ("This account does not have Admin
+  access.") and its just-created session is cleared. An `ADMIN` may enter
+  either way with full account privilege. Registration always mints `USER`.
+- **Frontend gating:** the sidebar hides genuinely unauthorized areas for
+  `USER` (AI Agent, Knowledge Base, Automation, Activity, Notifications,
+  Settings); `/settings`, `/ai-agent`, and `/knowledge/ingest` additionally
+  require `RequireAdmin` (truthful unauthorized page, no redirect loop).
+  The dashboard greets by time-of-day + session first name; Profile shows
+  the server-verified role. The backend (`requireRole`) stays the real
+  boundary in all cases.
+- **User management UI is intentionally a next phase.** The backend role
+  infrastructure (role column, normalization, `requireRole`, CLI promotion
+  mechanism) exists now; no self-promotion path exists anywhere
+  (`PATCH /auth/me` renames only — verified by tests).
 
 ## Customers (the external chat)
 

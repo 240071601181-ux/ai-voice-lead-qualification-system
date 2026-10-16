@@ -4,6 +4,14 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "@/app/routes";
 
+// Markdown rendering (streamdown → katex CSS chain) cannot be transformed
+// by the node test runner and is irrelevant to route-policy assertions:
+// these tests verify guards, redirects, and 404s, never chat typography.
+// (Same stub convention as AIChatBox.test.tsx and the conversation tests.)
+vi.mock("streamdown", () => ({
+  Streamdown: ({ children }: { children: string }) => <>{children}</>,
+}));
+
 let sessionUser: unknown = null;
 let sessionPending = false;
 

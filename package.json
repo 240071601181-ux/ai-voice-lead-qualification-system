@@ -7,9 +7,15 @@
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "dev:all": "node scripts/dev-all.mjs",
     "build": "tsc",
+    "check": "tsc --noEmit",
     "start": "node dist/app.js",
     "test": "jest",
-    "migrate": "ts-node src/database/migrate.ts"
+    "test:auth": "jest src/tests/auth.test.ts src/tests/authProfile.test.ts src/tests/roles.test.ts src/tests/customerAccess.test.ts src/tests/customerIsolation.test.ts",
+    "test:workflows": "jest src/tests/leadList.test.ts src/tests/leadCreate.test.ts src/tests/leadIdentity.test.ts src/tests/conversationApi.test.ts src/tests/conversationPersistence.test.ts src/tests/qualificationList.test.ts src/tests/followupList.test.ts src/tests/followupRoutes.test.ts src/tests/followupService.test.ts src/tests/calendarRoutes.test.ts src/tests/calendarBookingService.test.ts src/tests/calendarSync.test.ts src/tests/dashboardMix.test.ts src/tests/dashboardSummary.test.ts",
+    "test:integrations": "jest src/tests/crmSyncService.test.ts src/tests/whatsappSender.test.ts src/tests/n8nEmitter.test.ts src/tests/knowledgeInventory.test.ts src/tests/knowledgeRag.test.ts src/tests/integrationDiagnostics.test.ts src/tests/settings.test.ts src/tests/agentHealthMetrics.test.ts",
+    "test:migrations:live": "node scripts/verify-migrations-live.cjs",
+    "migrate": "ts-node src/database/migrate.ts",
+    "admin:promote": "ts-node src/scripts/promoteUserToAdmin.ts"
   },
   "keywords": [
     "ai",

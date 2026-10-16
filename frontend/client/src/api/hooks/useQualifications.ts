@@ -5,15 +5,16 @@
  * Phase 14C-3 API services (never fetch/axios).
  *
  * Backend coverage (existing Express endpoints only):
+ *   GET  /api/v1/qualifications                 -> useQualificationsListQuery
+ *   GET  /api/v1/qualifications/:id              -> useQualificationById
  *   GET  /api/v1/qualifications/leads/:leadId  -> useQualificationByLead
  *   POST /api/v1/qualifications                -> useCreateQualificationMutation
+ *   GET  /api/v1/dashboard/qualification-mix   -> useQualificationMixQuery
+ *   GET  /api/v1/dashboard/summary             -> useDashboardSummaryQuery
+ *     (see api/hooks/useDashboard.ts)
  *
  * (Phase 14: GET /api/v1/qualifications/calls/:callId retired with the
  * Calls UI; call-anchored rows remain readable by-id and by re-run.)
- *
- * There is NO GET-all and NO GET-by-qualification-id endpoint, so there is
- * deliberately no list query and no by-id query here. The /qualifications
- * list keeps using mock data until a backend list endpoint exists.
  */
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";

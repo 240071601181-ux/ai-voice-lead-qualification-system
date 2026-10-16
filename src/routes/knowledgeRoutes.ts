@@ -13,7 +13,7 @@ const router = Router();
 
 // Phase 20 — internal admin API. Ingest changes global company knowledge:
 // ADMIN only. Reads/search stay available to every internal role.
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 router.post('/ingest', requireRole('ADMIN'), handleIngestDocument);
 router.post('/search', handleSearchKnowledge);

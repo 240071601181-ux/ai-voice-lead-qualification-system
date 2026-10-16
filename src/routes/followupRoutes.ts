@@ -7,7 +7,7 @@ const router = Router();
 
 // Phase 20 — internal admin API: authenticated internal users only
 // (this also satisfies the Phase 13 note: authentication now exists).
-router.use(requireAuth, requireRole('ADMIN', 'OPERATOR'));
+router.use(requireAuth, requireRole('ADMIN', 'USER'));
 
 router.post('/schedule', schedule);
 router.get('/', list);
@@ -18,9 +18,8 @@ router.post('/:id/retry', retry);
 
 /**
  * INTERNAL/admin execution endpoint for a future scheduler/worker.
- * Not a public API for arbitrary external callers: restrict network access
- * until authentication infrastructure exists (out of scope for Phase 13).
+ * Explicit ADMIN authorization is enforced on this route.
  */
-router.post('/execute-due', executeDue);
+router.post('/execute-due', requireRole('ADMIN'), executeDue);
 
 export default router;
