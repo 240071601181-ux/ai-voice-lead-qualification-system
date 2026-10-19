@@ -10,6 +10,7 @@
     "check": "tsc --noEmit",
     "start": "node dist/app.js",
     "test": "jest",
+    "test:e2e": "playwright test -c e2e/playwright.config.ts",
     "test:auth": "jest src/tests/auth.test.ts src/tests/authProfile.test.ts src/tests/roles.test.ts src/tests/customerAccess.test.ts src/tests/customerIsolation.test.ts",
     "test:workflows": "jest src/tests/leadList.test.ts src/tests/leadCreate.test.ts src/tests/leadIdentity.test.ts src/tests/conversationApi.test.ts src/tests/conversationPersistence.test.ts src/tests/qualificationList.test.ts src/tests/followupList.test.ts src/tests/followupRoutes.test.ts src/tests/followupService.test.ts src/tests/calendarRoutes.test.ts src/tests/calendarBookingService.test.ts src/tests/calendarSync.test.ts src/tests/dashboardMix.test.ts src/tests/dashboardSummary.test.ts",
     "test:integrations": "jest src/tests/crmSyncService.test.ts src/tests/whatsappSender.test.ts src/tests/n8nEmitter.test.ts src/tests/knowledgeInventory.test.ts src/tests/knowledgeRag.test.ts src/tests/integrationDiagnostics.test.ts src/tests/settings.test.ts src/tests/agentHealthMetrics.test.ts",
@@ -36,6 +37,7 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^4.17.17",
     "@types/jest": "^29.5.5",

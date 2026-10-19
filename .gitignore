@@ -1,4 +1,6 @@
 node_modules/
+e2e/test-results/
+test-results/
 .env
 .env.local
 dist/

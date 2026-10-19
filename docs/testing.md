@@ -64,15 +64,19 @@ npm run test:migrations:live
 Expected output ends with `MIGRATION VERIFICATION: ALL PASS` (19 checks:
 A1–A7, B1–B7, C1–C3, D1). Any `FAIL` line names the exact check.
 
-## Tier 3 — browser end-to-end (not configured; blocked)
-
-No Playwright/Cypress harness exists and none is added here: E2E requires
-a running backend + PostgreSQL + seeded ADMIN/USER identities, and this
-environment cannot provide a database on demand (local PostgreSQL needs
 elevation to start). Adding an unrunnable harness plus lockfile churn
-would be speculative, so browser coverage stays at the jsdom
-component/route level (full Vitest suite), which renders every page,
 guard, redirect, and error state without a browser.
+## Tier 3 — browser end-to-end
+
+Playwright is the single browser-level framework. The real-service suite is
+under `e2e/` and requires an explicitly named disposable local database via
+`E2E_DATABASE_URL`; setup seeds test identities and teardown removes only
+`e2e-*` records. See `docs/e2e.md` for the command and provider settings.
+
+The suite covers ADMIN and USER auth/authorization, customer chat redemption
+and isolation, lead/conversation/qualification/follow-up/dashboard records,
+invalid sessions, and truthful API failure UI. It must not be replaced by
+fetch-mocked component tests.
 
 When a database-backed environment is available, the justified minimal
 addition is Playwright alone (`@playwright/test`, one framework) with
