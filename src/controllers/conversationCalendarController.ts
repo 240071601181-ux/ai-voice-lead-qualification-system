@@ -16,14 +16,22 @@ import {
   requestCalendarBooking,
 } from '../services/calendar/calendarBookingService';
 import { enqueueN8nEvent } from '../services/n8n/n8nEmitter';
-import { CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE } from './calendarController';
+import {
+  CALENDAR_AUTH_FAILED_MESSAGE,
+  CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE,
+} from './calendarController';
 import { logger } from '../utils/logger';
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
 const isNotConfigured = (skipped: string | undefined): boolean =>
-  skipped === 'disabled' || skipped === 'no_config';
+  skipped === 'disabled' || skipped === 'no_config' || skipped === 'auth_failed';
+
+const calendarUnavailableMessage = (skipped: string | undefined): string =>
+  skipped === 'auth_failed'
+    ? CALENDAR_AUTH_FAILED_MESSAGE
+    : CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE;
 
 /** Active or completed conversations may schedule; abandoned may not. */
 const isSchedulable = (status: string): boolean => status === 'active' || status === 'completed';
@@ -65,13 +73,14 @@ export const getConversationAvailabilityHandler = async (
       invalid_slot: 422,
       no_config: 503,
       disabled: 503,
+      auth_failed: 503,
     };
     const status = (outcome.skipped && statusBySkip[outcome.skipped]) || 502;
     return res.status(status).json({
       success: false,
       error: {
         message: isNotConfigured(outcome.skipped)
-          ? CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE
+          ? calendarUnavailableMessage(outcome.skipped)
           : `Availability check failed (${outcome.skipped || 'provider_error'})`,
         code: status,
       },
@@ -153,6 +162,7 @@ export const postConversationBookingHandler = async (
       tier: 403,
       no_config: 503,
       disabled: 503,
+      auth_failed: 503,
       no_input: 400,
     };
     // no_data here means the conversation has no linked lead (checked first
@@ -163,7 +173,7 @@ export const postConversationBookingHandler = async (
       success: false,
       error: {
         message: isNotConfigured(outcome.skipped)
-          ? CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE
+          ? calendarUnavailableMessage(outcome.skipped)
           : outcome.skipped === 'no_data'
             ? 'Conversation is not linked to a lead and cannot schedule meetings'
             : `Calendar booking not completed (${outcome.skipped || 'provider_error'})`,

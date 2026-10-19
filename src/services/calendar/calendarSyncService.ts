@@ -40,8 +40,10 @@ export const runCalendarSync = async (): Promise<CalendarSyncState> => {
       ? 'Calendar sync is disabled (CALENDAR_ENABLED=false)'
       : outcome.skipped === 'no_config'
         ? 'Calendar is not configured (Google OAuth credentials missing)'
-        : outcome.skipped === 'invalid_slot'
-          ? 'Calendar sync probe failed (invalid slot)'
-          : 'Calendar sync failed (provider_error)';
+        : outcome.skipped === 'auth_failed'
+          ? 'Calendar authorization failed (invalid or revoked refresh token); reconnect Google Calendar'
+          : outcome.skipped === 'invalid_slot'
+            ? 'Calendar sync probe failed (invalid slot)'
+            : 'Calendar sync failed (provider_error)';
   return recordCalendarSyncRun('failed', message);
 };

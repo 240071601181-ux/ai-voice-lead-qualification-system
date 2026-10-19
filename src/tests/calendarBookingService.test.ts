@@ -211,6 +211,33 @@ describe('calendarBookingService', () => {
     expect(failedCall[1]).toEqual(expect.arrayContaining(['calendar down']));
   });
 
+  it('should report OAuth authorization failures truthfully (never as a transient provider error)', async () => {
+    const authError = Object.assign(new Error('Google Calendar availability check failed (status 400; invalid_grant)'), {
+      status: 400,
+      reason: 'invalid_grant',
+      retryable: false,
+      authFailed: true
+    });
+    setCalendarProviderForTests({
+      name: 'mock',
+      checkAvailability: jest.fn().mockRejectedValue(authError),
+      createEvent: jest.fn()
+    });
+
+    const availability = await checkCalendarAvailability({ ...slotInput });
+    expect(availability).toEqual({ ok: false, skipped: 'auth_failed' });
+
+    mockReads();
+    (pool.query as jest.Mock)
+      .mockResolvedValueOnce({ rows: [] }) // findBookingByKey
+      .mockResolvedValueOnce({ rows: [{ id: 'b-auth', attempts: 1 }] }) // upsert attempt
+      .mockResolvedValueOnce({ rows: [{ id: 'b-auth', attempts: 2 }] }) // upsert error path
+      .mockResolvedValueOnce({ rows: [{ id: 'b-auth', status: 'failed' }] }); // mark failed
+
+    const booking = await requestCalendarBooking({ callId: 'call-1', ...slotInput });
+    expect(booking).toEqual({ ok: false, skipped: 'auth_failed' });
+  });
+
   it('should skip silently when disabled and redact secrets from errors', async () => {
     process.env.CALENDAR_ENABLED = 'false';
     const outcome = await requestCalendarBooking({ callId: 'call-1', ...slotInput });

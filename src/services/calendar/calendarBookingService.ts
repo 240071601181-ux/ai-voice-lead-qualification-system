@@ -73,6 +73,7 @@ export interface CalendarBookingOutcome {
     | 'no_input'
     | 'no_data'
     | 'no_config'
+    | 'auth_failed'
     | 'invalid_slot'
     | 'unavailable'
     | 'tier';
@@ -349,11 +350,12 @@ export const requestCalendarBooking = async (
     }
     logger.error('Calendar booking failed', {
       error: message,
+      authFailed: err?.authFailed === true,
       leadId: inputLeadId,
       callId,
       conversationId
     });
-    return { ok: false };
+    return err?.authFailed === true ? { ok: false, skipped: 'auth_failed' } : { ok: false };
   }
 };
 
@@ -364,7 +366,11 @@ export const checkCalendarAvailability = async (input: {
   start?: string | null;
   end?: string | null;
   timezone?: string | null;
-}): Promise<{ ok: boolean; available?: boolean; skipped?: 'disabled' | 'no_config' | 'invalid_slot' }> => {
+}): Promise<{
+  ok: boolean;
+  available?: boolean;
+  skipped?: 'disabled' | 'no_config' | 'auth_failed' | 'invalid_slot';
+}> => {
   if (!isCalendarEnabled()) return { ok: false, skipped: 'disabled' };
   const cfg = getCalendarConfig();
   if (!cfg.clientId || !cfg.clientSecret || !cfg.refreshToken) {
@@ -398,9 +404,12 @@ export const checkCalendarAvailability = async (input: {
     return { ok: true, available: result.available };
   } catch (err: any) {
     logger.error('Calendar availability check failed', {
-      error: sanitizeCalendarErrorMessage(err)
+      error: sanitizeCalendarErrorMessage(err),
+      authFailed: err?.authFailed === true
     });
-    return { ok: false };
+    return err?.authFailed === true
+      ? { ok: false, skipped: 'auth_failed' }
+      : { ok: false };
   }
 };
 

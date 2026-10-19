@@ -476,7 +476,11 @@ export const executeCheckCalendarAvailabilityText = async (
     }
     return {
       success: false,
-      errors: [`Availability check not completed (${outcome.skipped || 'provider_error'})`],
+      errors: [
+        outcome.skipped === 'auth_failed'
+          ? 'Calendar authorization failed; an operator must reconnect Google Calendar. Do not claim the slot is available.'
+          : `Availability check not completed (${outcome.skipped || 'provider_error'})`,
+      ],
     };
   } catch (err) {
     logger.error('Text tool checkCalendarAvailability failed', {
@@ -546,7 +550,11 @@ export const executeScheduleMeetingText = async (
     }
     return {
       success: false,
-      errors: [`Meeting could not be scheduled (${outcome.skipped || 'provider_error'})`],
+      errors: [
+        outcome.skipped === 'auth_failed'
+          ? 'Calendar authorization failed; an operator must reconnect Google Calendar. Do not claim the meeting was scheduled.'
+          : `Meeting could not be scheduled (${outcome.skipped || 'provider_error'})`,
+      ],
     };
   } catch (err) {
     logger.error('Text tool scheduleMeeting failed', {
@@ -569,7 +577,8 @@ export const executeScheduleMeetingText = async (
  *   parses as a single plain JSON object; embedded JSON stays plain text.
  * - top-level keys are limited to `name` + (`parameters` | `arguments`) and
  *   an optional string `id`. Any other key disqualifies it.
- * - `name` is a non-empty string; the arguments value is a plain object.
+ * - `name` is a non-empty string; `parameters` is a plain object, while
+ *   `arguments` may also be a JSON-encoded plain object string (OpenAI style).
  *
  * Shape recognition is NOT execution permission: the returned call always
  * flows through dispatchConversationTool, which enforces the text-tool
@@ -606,8 +615,29 @@ export const extractJsonToolCallsFromContent = (content: unknown): LlmToolCall[]
   // not here, so unknown names are properly rejected instead of leaked.
   if (typeof obj['name'] !== 'string' || (obj['name'] as string).trim().length === 0) return undefined;
   if (obj['id'] !== undefined && typeof obj['id'] !== 'string') return undefined;
-  const rawArgs = ('parameters' in obj ? obj['parameters'] : obj['arguments']) as unknown;
-  if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return undefined;
+  const argsKey = 'parameters' in obj ? 'parameters' : 'arguments';
+  const rawArgs = obj[argsKey] as unknown;
+  let argsObj: Record<string, unknown> | null = null;
+  if (!Array.isArray(rawArgs) && rawArgs && typeof rawArgs === 'object') {
+    argsObj = rawArgs as Record<string, unknown>;
+  } else if (argsKey === 'arguments' && typeof rawArgs === 'string') {
+    // OpenAI-style `arguments` is a JSON-encoded object string. Parse it
+    // strictly: only a plain JSON object is accepted; invalid JSON, arrays,
+    // primitives, and null are rejected rather than executed.
+    try {
+      const parsedArgs: unknown = JSON.parse(rawArgs.trim());
+      if (
+        parsedArgs &&
+        typeof parsedArgs === 'object' &&
+        !Array.isArray(parsedArgs)
+      ) {
+        argsObj = parsedArgs as Record<string, unknown>;
+      }
+    } catch {
+      argsObj = null;
+    }
+  }
+  if (!argsObj) return undefined;
   const id =
     typeof obj['id'] === 'string' && obj['id'].trim().length > 0
       ? obj['id'].trim().slice(0, 64)
@@ -618,7 +648,7 @@ export const extractJsonToolCallsFromContent = (content: unknown): LlmToolCall[]
       type: 'function',
       function: {
         name: obj['name'] as string,
-        arguments: JSON.stringify(rawArgs),
+        arguments: JSON.stringify(argsObj),
       },
     },
   ];

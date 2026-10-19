@@ -94,7 +94,9 @@ export const getCalendarDiagnostics = async (): Promise<CalendarDiagnostics> => 
         status: outcome.ok ? 'ok' : 'failed',
         message: outcome.ok
           ? 'Provider connectivity check passed (availability probe)'
-          : 'Provider connectivity check failed'
+          : outcome.skipped === 'auth_failed'
+            ? 'Provider authorization failed (auth_failed); reconnect Google Calendar'
+            : 'Provider connectivity check failed'
       });
     } catch (err: any) {
       checks.push({

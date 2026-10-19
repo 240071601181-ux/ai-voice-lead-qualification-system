@@ -129,6 +129,31 @@ describe('GoogleCalendarProvider', () => {
     expect(String(err.message)).not.toContain('test-refresh-token');
   });
 
+  it('should identify an OAuth invalid_grant without retrying or leaking secrets', async () => {
+    mockFreebusyQuery.mockRejectedValueOnce({
+      code: 400,
+      response: {
+        status: 400,
+        data: { error: 'invalid_grant', error_description: 'Bad Request' }
+      },
+      message: 'invalid_grant test-refresh-token test-client-secret'
+    });
+    const err: any = await new GoogleCalendarProvider()
+      .checkAvailability({
+        calendarId: 'primary',
+        slot: { start: '2026-09-20T04:30:00.000Z', end: '2026-09-20T05:00:00.000Z', timezone: 'Asia/Kolkata' },
+        timeoutMs: 1000
+      })
+      .catch((e) => e);
+    expect(err.status).toBe(400);
+    expect(err.reason).toBe('invalid_grant');
+    expect(err.authFailed).toBe(true);
+    expect(err.retryable).toBe(false);
+    expect(String(err.message)).toContain('invalid_grant');
+    expect(String(err.message)).not.toContain('test-refresh-token');
+    expect(String(err.message)).not.toContain('test-client-secret');
+  });
+
   it('should mark 4xx responses as non-retryable and fail fast without credentials', async () => {
     mockEventsInsert.mockRejectedValueOnce({
       code: 400,

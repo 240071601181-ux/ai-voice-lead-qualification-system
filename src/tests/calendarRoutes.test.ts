@@ -170,6 +170,28 @@ describe('Calendar endpoints', () => {
     expect(missing.status).toBe(404);
   });
 
+  it('should report expired or revoked OAuth authorization as 503, not provider_error', async () => {
+    const authError = Object.assign(new Error('Google Calendar availability check failed (status 400; invalid_grant)'), {
+      status: 400,
+      reason: 'invalid_grant',
+      retryable: false,
+      authFailed: true
+    });
+    setCalendarProviderForTests({
+      name: 'mock',
+      checkAvailability: jest.fn().mockRejectedValue(authError),
+      createEvent: jest.fn()
+    });
+
+    const res = await authedGet('/api/v1/calendar/availability').query({ ...slot });
+    expect(res.status).toBe(503);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toBe(
+      'Calendar authorization failed. Reconnect Google Calendar and try again.'
+    );
+    expect(JSON.stringify(res.body)).not.toContain('test-refresh-token');
+  });
+
   it('should report unconfigured booking with the truthful message (disabled + no_config)', async () => {
     const expected =
       'Calendar booking is not configured. Connect Google Calendar to create a meeting.';

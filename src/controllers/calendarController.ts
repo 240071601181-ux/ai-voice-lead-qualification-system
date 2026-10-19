@@ -25,8 +25,16 @@ const isNonEmptyString = (value: unknown): value is string =>
 export const CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE =
   'Calendar booking is not configured. Connect Google Calendar to create a meeting.';
 
+export const CALENDAR_AUTH_FAILED_MESSAGE =
+  'Calendar authorization failed. Reconnect Google Calendar and try again.';
+
 const isNotConfigured = (skipped: string | undefined): boolean =>
-  skipped === 'disabled' || skipped === 'no_config';
+  skipped === 'disabled' || skipped === 'no_config' || skipped === 'auth_failed';
+
+const calendarUnavailableMessage = (skipped: string | undefined): string =>
+  skipped === 'auth_failed'
+    ? CALENDAR_AUTH_FAILED_MESSAGE
+    : CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE;
 
 export const createBooking = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -64,6 +72,7 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
       no_data: 404,
       no_config: 503,
       disabled: 503,
+      auth_failed: 503,
       no_input: 400
     };
     const status = (outcome.skipped && statusBySkip[outcome.skipped]) || 502;
@@ -71,7 +80,7 @@ export const createBooking = async (req: Request, res: Response, next: NextFunct
       success: false,
       error: {
         message: isNotConfigured(outcome.skipped)
-          ? CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE
+          ? calendarUnavailableMessage(outcome.skipped)
           : `Calendar booking not completed (${outcome.skipped || 'provider_error'})`,
         code: status
       },
@@ -180,14 +189,15 @@ export const checkAvailability = async (req: Request, res: Response, next: NextF
     const statusBySkip: Record<string, number> = {
       invalid_slot: 422,
       no_config: 503,
-      disabled: 503
+      disabled: 503,
+      auth_failed: 503
     };
     const status = (outcome.skipped && statusBySkip[outcome.skipped]) || 502;
     return res.status(status).json({
       success: false,
       error: {
         message: isNotConfigured(outcome.skipped)
-          ? CALENDAR_BOOKING_NOT_CONFIGURED_MESSAGE
+          ? calendarUnavailableMessage(outcome.skipped)
           : `Availability check failed (${outcome.skipped || 'provider_error'})`,
         code: status
       }

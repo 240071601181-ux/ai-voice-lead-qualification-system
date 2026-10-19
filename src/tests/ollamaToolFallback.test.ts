@@ -118,6 +118,18 @@ describe('strict JSON-text tool-call parser', () => {
     expect(fenced).toHaveLength(1);
   });
 
+  it('strictly accepts JSON-string arguments that decode to a plain object', () => {
+    const calls = extractJsonToolCallsFromContent(
+      '{"name":"updateConversationState","arguments":"{\\"updates\\":{\\"pickup_location\\":\\"Chennai\\"}}"}'
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls![0].function.name).toBe('updateConversationState');
+    expect(JSON.parse(calls![0].function.arguments)).toEqual({
+      updates: { pickup_location: 'Chennai' },
+    });
+    expect(looksLikeJsonToolCall(calls![0].function.arguments)).toBe(false);
+  });
+
   it('recognizes the tool-call shape even for unknown names (dispatcher rejects them)', () => {
     // Shape recognition is not execution permission: unknown names flow to
     // dispatchConversationTool, which rejects them, so the model retries
@@ -156,6 +168,11 @@ describe('strict JSON-text tool-call parser', () => {
       '{"name":"updateConversationState","parameters":"Chennai"}',
       '{"name":"updateConversationState","parameters":null}',
       '{"name":"updateConversationState","parameters":[1]}',
+      // String-encoded arguments must decode to a plain object.
+      '{"name":"updateConversationState","arguments":"not-json"}',
+      '{"name":"updateConversationState","arguments":"[]"}',
+      '{"name":"updateConversationState","arguments":"42"}',
+      '{"name":"updateConversationState","arguments":"null"}',
       // Ordinary customer JSON stays text.
       '{"delivery":"tomorrow","phone":"123"}',
       '{"name":"Ravi","city":"Chennai"}',
@@ -286,6 +303,40 @@ describe('orchestrator JSON-text tool loop (text turns)', () => {
     const toolMsg = secondTurn.find((m: any) => m.role === 'tool');
     expect(toolMsg).toBeDefined();
     expect(toolMsg.content).toMatch(/updated successfully/i);
+  });
+
+  it('executes a JSON-text call with string-encoded arguments without leaking JSON', async () => {
+    const store = makeStore();
+    installMock(store);
+    const seen: any[][] = [];
+    withProvider(
+      scriptedProvider(
+        [
+          {
+            content:
+              '{"name":"updateConversationState","arguments":"{\\"updates\\":{\\"pickup_location\\":\\"Chennai\\"}}"}',
+            finishReason: 'stop',
+          },
+          {
+            content: 'Noted — pickup is Chennai. Where should we deliver?',
+            finishReason: 'stop',
+          },
+        ],
+        seen
+      )
+    );
+
+    const res = await orchestrator.processTurn({
+      conversationId: 'conv-1',
+      messages: [{ role: 'user', content: 'Pickup is Chennai.' }],
+      tools: getTextToolDefinitions(),
+    });
+
+    expect(res.executedTools).toEqual([{ name: 'updateConversationState', success: true }]);
+    expect(store.textState.pickup_location).toBe('Chennai');
+    expect(res.content).not.toContain('"arguments"');
+    expect(res.content).not.toContain('"name"');
+    expect(seen[1].some((m: any) => m.role === 'tool')).toBe(true);
   });
 
   it('supports multiple JSON-text tool rounds within the budget', async () => {
